@@ -1,0 +1,462 @@
+You’re building a surprisingly relevant foundation already.
+
+A modern single-player action game is not “just gameplay code.” A lot of professional game development overlaps with the same engineering principles you’re using now:
+
+architecture
+data flow
+state management
+async systems
+authentication/permissions equivalents
+UI/frontend logic
+persistence
+modularity
+debugging and maintainability
+
+The difference is mostly:
+
+the runtime environment (real-time simulation instead of request/response)
+performance constraints
+content pipelines
+player experience design
+
+Here’s how your current backend/web experience maps into Unity game development.
+
+1. Architecture & Separation of Concerns
+
+This is one of the biggest transferable skills.
+
+In ASP.NET:
+
+Controllers
+Services
+Repository layer
+DTOs
+Dependency Injection
+
+In Unity:
+
+Input Layer
+Gameplay Systems
+AI Systems
+Animation Systems
+Save Systems
+UI Systems
+Data Layer (ScriptableObjects/JSON)
+Managers/Services
+
+The equivalent mistake beginners make in Unity:
+
+PlayerController.cs
+
+becomes a 5000-line god script handling:
+
+movement
+combat
+UI
+audio
+inventory
+saving
+animations
+
+Your backend experience helps avoid this immediately.
+
+A strong Unity action game architecture might look like:
+
+Combat/
+Movement/
+Animation/
+AI/
+UI/
+SaveSystem/
+Audio/
+Core/
+Data/
+
+That’s already “real engineering.”
+
+2. State Management (EXTREMELY Important)
+
+This is everywhere in action games.
+
+You already indirectly touched this through:
+
+Angular component states
+AuthGuard
+JWT auth flow
+async API states
+
+In action games:
+
+Player State
+Enemy AI State
+Combat State
+Animation State
+Game State
+UI State
+
+Examples:
+
+Idle
+Running
+Attacking
+Dodging
+Stunned
+Dead
+
+This becomes:
+
+Finite State Machines (FSM)
+Behavior Trees
+State-driven animations
+
+Games like:
+
+Devil May Cry 5
+Sifu
+Sekiro: Shadows Die Twice
+
+all heavily rely on state systems.
+
+You should deeply learn:
+
+FSM architecture
+event-driven programming
+decoupling systems
+3. Event-Driven Design
+
+This directly connects to modern frontend/backend patterns.
+
+Angular:
+
+observables
+event bindings
+reactive updates
+
+Unity:
+
+OnHealthChanged
+OnEnemyKilled
+OnComboUpdated
+OnWeaponEquipped
+
+A scalable action game uses events constantly.
+
+Without events:
+
+everything tightly couples together
+code becomes impossible to maintain
+
+This is one of the biggest transitions from “beginner Unity” to “professional Unity.”
+
+4. Data-Oriented Thinking
+
+Entity Framework teaches you structured data.
+
+Games also revolve around data:
+
+enemy stats
+weapons
+movesets
+hitboxes
+damage tables
+skill trees
+
+Instead of hardcoding:
+
+damage = 25;
+
+you move toward:
+
+WeaponData
+EnemyData
+SkillData
+
+via:
+
+ScriptableObjects
+JSON
+binary saves
+config-driven gameplay
+
+This becomes VERY important for balancing action games.
+
+5. Async Programming & Game Flow
+
+You already touched async through:
+
+API calls
+HTTP requests
+promises/tasks
+
+Games also rely on async flow:
+
+scene loading
+animation timing
+AI behavior
+cutscenes
+save/load
+streaming assets
+
+Unity equivalents:
+
+async/await
+Coroutines
+UniTask
+
+Understanding async early is a huge advantage.
+
+6. Frontend Skills → Game UI
+
+Angular knowledge is actually useful.
+
+Game UI today is basically frontend engineering.
+
+You’ll deal with:
+
+HUD systems
+inventory menus
+dialogue systems
+skill trees
+map screens
+responsive layouts
+transitions/animations
+
+Concepts transfer surprisingly well:
+
+Angular	Unity
+Component	Prefab/UI Panel
+State	UI State
+Event Binding	Button Events
+Services	Managers
+Routing	Scene Management
+
+A lot of AAA UI engineers are basically frontend engineers.
+
+7. Authentication Knowledge → Online/Meta Systems
+
+Even if your goal is single-player, modern games often include:
+
+cloud saves
+online leaderboards
+account systems
+telemetry
+analytics
+DLC validation
+
+JWT/Auth knowledge becomes useful later.
+
+Especially if you eventually:
+
+release on Steam
+use backend services
+build launcher/account systems
+add multiplayer someday
+8. Database Thinking → Save System Design
+
+CRUD maps directly into:
+
+inventory save/load
+quest progression
+world states
+NPC relationships
+unlockables
+
+Example:
+
+{
+  "playerLevel": 15,
+  "skillsUnlocked": [],
+  "weaponsOwned": [],
+  "storyFlags": {}
+}
+
+That’s basically domain modeling.
+
+9. Real-Time Systems (Your Next Big Step)
+
+This is where game dev diverges heavily from web dev.
+
+Web apps:
+
+request → response
+
+Action games:
+
+60 FPS simulation loop
+
+You now need to learn:
+
+frame updates
+delta time
+physics
+animation timing
+optimization
+memory allocations
+CPU/GPU bottlenecks
+
+This is the “game-specific engineering” part.
+
+10. Animation Systems (CRITICAL for Action Games)
+
+For your long-term goals, this is one of the biggest pillars.
+
+You mentioned inspiration from:
+
+Sleeping Dogs
+Sifu
+Stellar Blade
+
+Then you need:
+
+Animator Controller
+Blend Trees
+Animation Events
+Root Motion
+Combat cancel windows
+Hit reactions
+Motion matching (advanced)
+
+This is where action games become hard.
+
+Not graphics.
+Not models.
+
+Animation systems.
+
+11. Combat Framework Design
+
+The heart of action games.
+
+You’ll eventually need:
+
+hit detection
+hurtboxes
+combo systems
+invincibility frames
+stagger systems
+lock-on systems
+targeting
+enemy coordination
+camera systems
+
+This is where software engineering matters a LOT.
+
+Bad architecture kills action games quickly.
+
+12. AI Systems
+
+Your backend logic mindset helps here too.
+
+Action game AI involves:
+
+decision trees
+utility AI
+FSMs
+perception systems
+navigation
+combat coordination
+
+Good enemy AI is structured logic engineering.
+
+13. Tool Development (Underrated Skill)
+
+Professional game dev is often:
+
+“making tools for designers.”
+
+Your engineering background helps enormously here.
+
+Examples:
+
+custom editors
+enemy pattern editors
+dialogue tools
+quest tools
+animation preview tools
+
+Unity editor scripting becomes very valuable.
+
+14. Optimization Mindset
+
+Web apps tolerate inefficiency more easily.
+
+Games don’t.
+
+You’ll eventually learn:
+
+garbage collection spikes
+pooling
+memory allocations
+draw calls
+batching
+profiling
+
+Unity Profiler becomes important.
+
+Suggested Learning Roadmap For You
+
+Given your current level, I’d recommend:
+
+Phase 1 — Engineering-Oriented Unity
+
+Focus:
+
+clean architecture
+FSM
+event systems
+ScriptableObjects
+async/coroutines
+modular combat systems
+
+Make:
+
+small combat prototypes
+enemy AI sandbox
+combo system
+inventory system
+Phase 2 — Action Game Core
+
+Focus:
+
+animation blending
+hit reactions
+lock-on
+camera systems
+enemy coordination
+dodge/parry timing
+
+Make:
+
+one polished combat room
+one enemy archetype done VERY well
+Phase 3 — Production-Level Skills
+
+Focus:
+
+optimization
+tools
+save systems
+content pipelines
+build systems
+asset workflows
+The Important Thing
+
+You are no longer “just learning programming.”
+
+You’re building:
+
+software engineering fundamentals
+system architecture thinking
+scalable coding habits
+
+Those are the exact things many beginner indie devs lack.
+
+A lot of people can make:
+
+a prototype
+
+Very few can make:
+
+a maintainable game codebase for 3 years.
+
+Your current company experience is directly helping with that.
