@@ -1,0 +1,551 @@
+Here is the complete summary of how your architecture lines up for a real-time machine surveillance system using **Angular 21 + TypeScript** on the frontend, and **ASP.NET Core + Entity Framework Core** on the backend, using a clean runtime localization approach via `ngx-translate`.
+
+---
+
+## The Big Picture Architecture
+
+Instead of reloading the app, everything relies on asynchronous data swapping. The frontend swaps static labels seamlessly using JSON dictionary files, and passes the current language selection to the backend via HTTP headers so your API endpoints can return properly localized database validation errors or audit logs.
+
+---
+
+## 1. The Frontend Structure (Angular 21 + TypeScript)
+
+Since you are using modern Angular 21, you’ll be leveraging standalone component configurations, fast asset loading, and optimized state handling.
+
+### The File Layout
+
+```text
+src/
+└── app/
+    ├── assets/
+    │   └── i18n/
+    │       ├── en.json         <-- English text mapping
+    │       └── ja.json         <-- Japanese text mapping
+    ├── components/
+    │   └── machine-dashboard/  <-- Real-time UI grid
+    └── app.config.ts           <-- Standalone app configuration
+
+```
+
+### Key Components to Implement:
+
+* **The Asset JSON Files:** Simple key-value dictionaries.
+```json
+// ja.json
+{
+  "DASHBOARD": {
+    "TITLE": "機械監視システム",
+    "TEMP": "現在温度",
+    "ERR_OUT_OF_RANGE": "温度が許容範囲を超えています。"
+  }
+}
+
+```
+
+
+* **`app.config.ts` (The Bootsrapper):** You configure the `HttpClient` along with the `TranslateModule`. You pass an asset loader function so `ngx-translate` knows to fetch the `.json` files asynchronously from your static assets directory when the locale changes.
+* **The Shared Interceptor (`language.interceptor.ts`):** A standard Angular `HttpInterceptorFn`. It intercepts every single outgoing API call to your ASP.NET backend and appends the header: `Accept-Language: ja` (or `en`). This completely bridges the communication gap with your server automatically.
+* **The Component UI Layout:** You display strings using the `translate` pipe. For your real-time values, you keep raw structural codes/enums decoupled from languages:
+```html
+<h1>{{ 'DASHBOARD.TITLE' | translate }}</h1>
+<td>{{ machine.machineId }}</td>
+<td>{{ machine.temperature }} °C</td>
+
+```
+
+
+
+---
+
+## 2. The Backend Structure (ASP.NET + Entity Framework)
+
+Your backend remains stateless and highly performant. It reads the incoming culture header from Angular on every request, adjusting its validation error messages on the fly.
+
+### The N-Tier Class Layout
+
+```text
+BackendSolution/
+├── Core.Domain/              
+│   └── Entities/
+│       ├── MachineMaster.cs    <-- (MachineID PK, MachineName)
+│       └── MachineData.cs      <-- (DataID PK, MachineID FK, Temperature)
+├── Infrastructure.Data/       
+│   └── AppDbContext.cs        <-- Entity Framework tracking
+├── Application.Services/      
+│   ├── SharedResources.cs     <-- Empty dummy class (Anchor marker)
+│   └── MachineService.cs      <-- Injects IStringLocalizer
+└── Presentation.API/         
+    ├── Resources/
+    │   ├── SharedResources.en.resx
+    │   └── SharedResources.ja.resx  <-- Key-value backend dictionaries
+    └── Program.cs             <-- Registers Localization Middleware
+
+```
+
+### Key Components to Implement:
+
+* **`Program.cs` (Middleware Setup):** You add `builder.Services.AddLocalization()` and call `app.UseRequestLocalization()`. You define your supported cultures as `en` and `ja`. The system automatically inspects the incoming `Accept-Language` header from Angular and sets `CultureInfo.CurrentUICulture` behind the scenes for that specific request execution.
+* **The Marker and Resource Files:** An empty file `public class SharedResources {}` mapped directly to your `.resx` XML translation files.
+* **Data Transfer Objects (DTOs):**
+When a user performs CRUD edits on a machine, your input validation decorators link right back to your resource marker for localized processing:
+```csharp
+[Range(-50, 200, ErrorMessageResourceName = "ERR_OUT_OF_RANGE", ErrorMessageResourceType = typeof(SharedResources))]
+public double TargetTemperature { get; set; }
+
+```
+
+
+* **Entity Framework Schema Strategy:** The relational structure keeps your time-series tables separate. Your `MachineMaster` maintains the inventory records, while `MachineData` maps millions of historical logs smoothly using a **One-to-Many** setup linked via `MachineID` as a Foreign Key. This ensures your data queries remain blindingly fast on AWS.
+
+---
+
+## Summary of the Runtime Loop
+
+1. The technician clicks **"日本語"** on your Angular dashboard.
+2. `ngx-translate` fetches `ja.json` instantly and updates all static UI labels without a page reload or dropping your WebSocket/live data streams.
+3. The Angular HTTP client updates its internal header profile to `Accept-Language: ja`.
+4. The user runs an invalid CRUD command on a machine.
+5. ASP.NET catches the error, parses the `ja` header, matches the key inside `SharedResources.ja.resx`, and shoots back the clean error: *"温度が許容範囲を超えています。"*
+6. Angular renders the error beautifully inside a modal. All systems remain secure, fast, and completely contextualized.
+-----------------------------
+============================
+----------------------------
+# Database structure
+
+In your database, the structure is divided into exactly **two tables** linked by a **One-to-Many relationship**. This prevents data duplication and keeps the structure optimized, even when logging thousands of temperature readings.
+
+Here is the exact schema and data layout for both tables:
+
+---
+
+## 1. The `MachineMaster` Table (The Parent)
+
+This table acts as your master inventory directory. Each machine gets **exactly one row** containing its static configuration details.
+
+* **`MachineID`** is the **Primary Key (PK)**—a unique identifier for each piece of hardware.
+
+### Table Schema & Sample Data:
+
+| MachineID (PK) `[VARCHAR]` | MachineName `[VARCHAR]` | Location `[VARCHAR]` | ModelNumber `[VARCHAR]` |
+| --- | --- | --- | --- |
+| **M-101** | Conveyor Belt A | Assembly Floor 1 | CV-2000 |
+| **M-102** | Main Cooling Pump | Basement Plant | WP-X300 |
+| **M-103** | Hydraulic Press | Forging Area | HP-500 |
+
+---
+
+## 2. The `MachineData` Table (The Child)
+
+This table acts as your continuous, time-series telemetry logbook. It stores every single temperature reading from **all** machines sequentially in a single location.
+
+* **`DataID`** is the **Primary Key (PK)** for the log entry itself.
+* **`MachineID`** is the **Foreign Key (FK)**. It links the reading back to the parent machine in the master table.
+
+### Table Schema & Sample Data:
+
+| DataID (PK) `[INT]` | MachineID (FK) `[VARCHAR]` | Temperature `[DECIMAL]` | Temperature_Date `[DATETIME]` |
+| --- | --- | --- | --- |
+| 1 | **M-101** | 42.5 | 2026-05-29 09:00:00 |
+| 2 | **M-102** | 18.2 | 2026-05-29 09:00:10 |
+| 3 | **M-101** | 43.1 | 2026-05-29 09:01:00 |
+| 4 | **M-103** | 78.4 | 2026-05-29 09:01:12 |
+| 5 | **M-102** | 18.1 | 2026-05-29 09:02:10 |
+
+---
+
+## How They Connect (The Entity Relationship)
+
+In Entity Framework Core, your database structure translates to these two clean classes, where EF automatically handles the database constraints:
+
+```csharp
+public class MachineMaster
+{
+    [Key]
+    public string MachineID { get; set; } // PK
+    public string MachineName { get; set; }
+    public string Location { get; set; }
+    
+    // Entity Framework Navigation Property (One Machine has Many Data logs)
+    public ICollection<MachineData> TelemetryLogs { get; set; }
+}
+
+public class MachineData
+{
+    [Key]
+    public int DataID { get; set; } // PK
+    
+    [ForeignKey("MachineMaster")]
+    public string MachineID { get; set; } // FK
+    
+    public double Temperature { get; set; }
+    public DateTime Temperature_Date { get; set; }
+    
+    // Navigation Property back to parent
+    public MachineMaster Machine { get; set; }
+}
+
+```
+
+### Why this structure works perfectly for your surveillance app:
+
+When your backend runs a query to display a live dashboard line chart for `M-101`, Entity Framework doesn't scan the whole database. It uses the **Foreign Key Index** to instantly pluck out only the rows from `MachineData` where `MachineID == "M-101"`, keeping your application lightning-fast even with millions of entries stored on AWS.
+================================
+
+Yes, there is a specific cryptographic pattern that achieves exactly what you remember. It perfectly matches your goal: the payload hides the real password, the database only stores hashes, and **pasting the payload hash or the database hash into the login field will completely fail.** To make this happen, your backend doesn't *decrypt* the payload back to plain text. Instead, it uses a technique called **Asymmetric Public-Key Encryption** for transit, combined with a **One-Way Hash** for the database.
+
+Here is the exact mechanism of how this works step-by-step.
+
+---
+
+## The Core Concept: Encryption vs. Hashing
+
+To understand the workflow, we have to look at the two different tools being used:
+
+1. **The Transit Shield (Asymmetric Encryption - RSA):** This uses a paired **Public Key** (which can only lock/encrypt data) and a **Private Key** (which lives safely on your ASP.NET backend and can unlock/decrypt data).
+2. **The Database Shield (One-Way Hashing - BCrypt):** A scrambled footprint of the password that can never be reversed or decrypted.
+
+---
+
+## Step-by-Step Execution Workflow
+
+### Step 1: Angular Fetches the Public Key
+
+When the user loads the login page, your Angular app makes a quick API call to ASP.NET to ask for the current **Public Key**.
+
+### Step 2: Angular Encrypts the Input (The Payload)
+
+The user types `admin123` into the password box. Right before sending the HTTP POST request, Angular uses the Public Key to **encrypt** the text.
+
+* **The Result:** The payload turns into a massive, unreadable scrambled string (Base64 or Hex).
+* **Why pasting this fails:** If a hacker copies this payload string and pastes it into the login box next time, Angular will treat that massive string as the *new plain-text input* and encrypt it *again* using the public key. The backend will decrypt it, see the massive string instead of `admin123`, and reject the login.
+
+### Step 3: ASP.NET Decrypts the Payload
+
+The scrambled payload arrives at your backend. ASP.NET takes its hidden **Private Key** (which never leaves the server) and decrypts the string.
+
+* **The Result:** The backend now temporarily holds the actual plain-text string: `"admin123"`.
+
+### Step 4: ASP.NET Hashes and Compares with the DB
+
+Now that the backend has the real password `"admin123"`, it processes it through its standard hashing function (like BCrypt) and compares it against the secure hash stored in your `UserMaster` database table.
+
+* **Why stealing the DB hash fails:** If a hacker steals your database file and tries to paste the database hash (e.g., `$2a$11$...`) into the front-end login box, Angular will encrypt it, the backend will decrypt it back to `$2a$11$...`, but then the backend will hash that string *again*. A hash of a hash will never match the database record, blocking the attacker completely.
+
+---
+
+## Why this solves your superior's concern
+
+This architecture perfectly fulfills every constraint your team is looking for:
+
+* **Over the network:** The password is completely hidden. Anyone looking at the browser's Network Tab will only see a scrambled cryptographic block, not `admin123`.
+* **Inside the Database:** You remain completely compliant with security standards because you are only storing un-reversible BCrypt hashes.
+* **Input Integrity:** The system **only** authenticates the request if the human user literally types the characters `a-d-m-i-n-1-2-3` into the Angular UI component.
+
+## The Implementation Checklist
+
+If you want to recreate this behavior in your project, look up libraries that support **RSA Encryption**.
+
+1. **On Angular:** Use a library like `jsencrypt` or the browser's built-in `window.crypto.subtle` to handle the `encrypt(plainText, publicKey)` step.
+2. **On ASP.NET:** Use the built-in `System.Security.Cryptography.RSACryptoServiceProvider` to handle the `Decrypt(payload, privateKey)` step inside your login controller before passing the result to your Entity Framework authentication logic.
+
+▼▼▼
+To recreate this exact security behavior, you will use **RSA Asymmetric Encryption** for securing the password over the network (transit) and **BCrypt** for securing the password in the database (at rest).
+
+Here is the complete structural blueprint and implementation guide for both your Angular 21 frontend and ASP.NET Core backend.
+
+---
+
+## The Architectural Blueprint
+
+```text
+1. [Angular] requests Public Key ─────────────────────────> [ASP.NET] returns RSA Public Key
+2. [Angular] encrypts "admin123" with Public Key ─────────> [ASP.NET] receives cipher text
+3.                                                          [ASP.NET] decrypts cipher with Private Key
+4.                                                          [ASP.NET] BCrypt-verifies plain text against DB
+
+```
+
+By passing a newly generated public key or using a session-bound key, the encrypted payload changes every single time. Copying and pasting an old payload or a database string directly into the login field will always result in an authentication failure.
+
+---
+
+## 1. Frontend Architecture (Angular 21 + TypeScript)
+
+On the frontend, you need a service to fetch the public key from the server and a crypto utility to encrypt the plain text string before making the POST login call.
+
+### The File Layout
+
+```text
+src/
+└── app/
+    ├── services/
+    │   └── auth.service.ts       <-- Handles API calls (Get Key, Login)
+    ├── components/
+    │   └── login/
+    │       ├── login.component.ts
+    │       └── login.component.html
+    └── app.config.ts
+
+```
+
+### Implementation Logic
+
+You can use the native browser `window.crypto.subtle` API or a lightweight, proven wrapper library like `jsencrypt`.
+
+**`auth.service.ts` snippet:**
+
+```typescript
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { JSEncrypt } from 'jsencrypt';
+import { firstValueFrom } from 'rxjs';
+
+@Injectable({ providedIn: 'root' })
+export class AuthService {
+  private http = inject(HttpClient);
+
+  async login(username: string, plainTextPassword: string) {
+    // 1. Fetch the public key from ASP.NET
+    const { publicKey } = await firstValueFrom(this.http.get<{ publicKey: string }>('/api/auth/public-key'));
+
+    // 2. Encrypt the plain text password
+    const encryptor = new JSEncrypt();
+    encryptor.setPublicKey(publicKey);
+    const encryptedPassword = encryptor.encrypt(plainTextPassword);
+
+    // 3. Send the encrypted string as payload
+    return firstValueFrom(this.http.post('/api/auth/login', {
+      username,
+      password: encryptedPassword // Scrambled RSA string
+    }));
+  }
+}
+
+```
+
+---
+
+## 2. Backend Architecture (ASP.NET Core n-Tier)
+
+The backend is responsible for generating the key pair, safely holding the **Private Key** in memory (or a secure cache), decrypting the payload, and verifying it against Entity Framework.
+
+### The N-Tier Class Layout
+
+```text
+BackendSolution/
+├── Core.Domain/              
+│   └── Entities/
+│       └── UserMaster.cs          <-- Contains Username and BCrypt PasswordHash
+├── Application.Services/      
+│   ├── Interfaces/
+│   │   └── ICryptoService.cs      <-- Key generation & decryption contract
+│   └── Implementations/
+│       ├── CryptoService.cs       <-- Implements RSA logic
+│       └── UserService.cs         <-- Handles login business logic & BCrypt
+└── Presentation.API/         
+    └── Controllers/
+        └── AuthController.cs      <-- Endpoints for /public-key and /login
+
+```
+
+### The Component Implementations
+
+#### A. The Application Layer (`CryptoService.cs`)
+
+This class uses the built-in .NET `RSA` engine to manage keys and handle the decryption phase.
+
+```csharp
+using System.Security.Cryptography;
+
+public interface ICryptoService {
+    string GetPublicKey();
+    string Decrypt(string encryptedBase64Text);
+}
+
+public class CryptoService : ICryptoService {
+    private readonly RSA _rsa;
+
+    public CryptoService() {
+        // Initializes a 2048-bit RSA key pair upon instantiation
+        _rsa = RSA.Create(2048);
+    }
+
+    public string GetPublicKey() {
+        // Export the public key in standard PEM/X509 format for Angular
+        return _rsa.ExportRSAPublicKeyPem();
+    }
+
+    public string Decrypt(string encryptedBase64Text) {
+        byte[] dataToDecrypt = Convert.FromBase64String(encryptedBase64Text);
+        byte[] decryptedData = _rsa.Decrypt(dataToDecrypt, RSAEncryptionPadding.OaepSHA256);
+        return System.Text.Encoding.UTF8.GetString(decryptedData);
+    }
+}
+
+```
+
+> **Architecture Note:** Register `ICryptoService` as a **Singleton** in your `Program.cs` (`builder.Services.AddSingleton<ICryptoService, CryptoService>();`) so the private key stays active in application memory across requests.
+
+#### B. The Service Layer (`UserService.cs`)
+
+Once the text is decrypted, the service uses `BCrypt` to match the value against your Entity Framework data models.
+
+```csharp
+public class UserService {
+    private readonly AppDbContext _context;
+    private readonly ICryptoService _cryptoService;
+
+    public UserService(AppDbContext context, ICryptoService cryptoService) {
+        _context = context;
+        _cryptoService = cryptoService;
+    }
+
+    public bool ValidateUser(string username, string encryptedPasswordPayload) {
+        // 1. Decrypt RSA back to plain text ("admin123")
+        string plainTextPassword = _cryptoService.Decrypt(encryptedPasswordPayload);
+
+        // 2. Fetch user entity via EF Core
+        var user = _context.Users.FirstOrDefault(u => u.Username == username);
+        if (user == null) return false;
+
+        // 3. Verify plain text against the slow database BCrypt hash
+        return BCrypt.Net.BCrypt.Verify(plainTextPassword, user.PasswordHash);
+    }
+}
+
+```
+
+#### C. The API Layer (`AuthController.cs`)
+
+Exposes the two needed access points to your Angular frontend.
+
+```csharp
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase {
+    private readonly ICryptoService _cryptoService;
+    private readonly UserService _userService;
+
+    public AuthController(ICryptoService cryptoService, UserService userService) {
+        _cryptoService = cryptoService;
+        _userService = userService;
+    }
+
+    [HttpGet("public-key")]
+    public IActionResult GetPublicKey() {
+        var publicKeyPem = _cryptoService.GetPublicKey();
+        return Ok(new { publicKey = publicKeyPem });
+    }
+
+    [HttpPost("login")]
+    public IActionResult Login([FromBody] LoginDto dto) {
+        bool isSuccess = _userService.ValidateUser(dto.Username, dto.Password);
+        if (!isSuccess) return Unauthorized("Invalid credentials");
+        
+        // Issue JWT token or establish session here...
+        return Ok(new { message = "Logged in successfully" });
+    }
+}
+
+```
+
+---
+
+## 3. How the Database Row Looks
+
+Your database table completely excludes plain text or RSA components. It strictly stores the standard, secure, non-invertible output footprint:
+
+| UserID (PK) | Username | PasswordHash (BCrypt format) |
+| --- | --- | --- |
+| 1 | admin | `$2a$11$V2xO5mI...vKq9YgA6m1Lp8X` |
+
+With this structure established, your application is fully protected against network interception, presentation replay vulnerabilities, and backend physical data theft.
+
+-------
+Classes
+
+To give you a clean, unified reference file for your backend, here is the complete checklist of all the classes and static artifacts you need to build across your N-Tier architecture.
+
+This covers both your **Runtime Localization (`ngx-translate` integration)** and your **Secure Password Transit (`RSA` Decryption + `BCrypt` Hashing)** workflows.
+
+---
+
+## 1. Core Domain Layer (Data Models)
+
+These classes define your database tables using Entity Framework Core. They focus on holding structural properties and hashes rather than plain text.
+
+* **`UserMaster.cs` (Entity Class):**
+Represents your user accounts. Contains fields like `UserID` (PK), `Username`, and `PasswordHash` (stores the final, slow **BCrypt** hash).
+* **`MachineMaster.cs` (Entity Class):**
+Your inventory tracking parent table. Contains static elements like `MachineID` (PK) and `MachineName`. Includes an EF navigation property linking to its data logs.
+* **`MachineData.cs` (Entity Class):**
+Your continuous telemetry log table. Contains `DataID` (PK), `MachineID` (FK), `Temperature`, and `Temperature_Date`. It sets up the **One-to-Many** relationship.
+
+---
+
+## 2. Infrastructure & Data Access Layer
+
+This layer acts as the bridge to your database on AWS and manages database execution details.
+
+* **`AppDbContext.cs` (EF Core Database Context):**
+Registers your `DbSet<UserMaster>`, `DbSet<MachineMaster>`, and `DbSet<MachineData>`. It configures relationship keys and index strategies during application startup.
+
+---
+
+## 3. Application & Business Logic Layer
+
+This tier handles the core computations. It manages decryption, password verification, and matches dictionary strings without knowing anything about the incoming HTTP context.
+
+### Cryptography & Passwords
+
+* **`ICryptoService.cs` (Interface):**
+Defines the contract for your transit protection. Includes methods like `GetPublicKey()` and `Decrypt(string encryptedBase64Text)`.
+* **`CryptoService.cs` (Implementation Class):**
+Uses .NET's built-in `RSA` framework to manage the 2048-bit keypair. It safely processes the decryption phase using modern padding algorithms like `OaepSHA256`.
+
+### User & Telemetry Processing
+
+* **`IUserService.cs` & `UserService.cs` (Service Classes):**
+Coordinates the login flow. Calls `ICryptoService` to unpack the incoming RSA payload string, queries `AppDbContext` for the user record, and runs `BCrypt.Net.BCrypt.Verify()` to safely grant system access tokens.
+* **`IMachineService.cs` & `MachineService.cs` (Service Classes):**
+Manages CRUD workflows for your machinery profiles. This class injects `IStringLocalizer<SharedResources>` to translate custom domain exceptions if validation checks fail.
+
+### Localization Anchors
+
+* **`SharedResources.cs` (Dummy Marker Class):**
+An empty, public class structure located in a core namespace. It functions strictly as a strongly-typed anchor for Microsoft's dependency injection framework to locate the localized dictionary resource files.
+
+---
+
+## 4. Presentation & API Layer
+
+This is your outward-facing gatekeeper. It reads the incoming headers from Angular, manages routing endpoints, and hooks configurations into application memory.
+
+### Web Controllers
+
+* **`AuthController.cs` (API Controller):**
+Exposes two specific REST endpoints: `GET api/auth/public-key` (serves the RSA public key to Angular) and `POST api/auth/login` (receives the encrypted password payload).
+* **`MachineController.cs` (API Controller):**
+Exposes your classic CRUD routes (`GET`, `POST`, `PUT`, `DELETE`) for managing your hardware inventory.
+
+### Cross-Cutting Configuration Components
+
+* **`LoginDto.cs` & `MachineDto.cs` (Data Transfer Objects):**
+Defines the shape of data incoming from Angular. For instance, `MachineDto` maps validation data attributes (like `[Required]` or `[Range]`) and directly hooks their `ErrorMessageResourceType` parameters to the `SharedResources` marker class.
+* **`Program.cs` (Global Startup Orchestrator):**
+Wires the entire solution together. It explicitly initializes:
+1. **`RequestLocalizationOptions` Middleware:** Tells ASP.NET to parse the incoming `Accept-Language` header automatically.
+2. **Singleton Registration:** Registers `ICryptoService` as a **Singleton** lifetime model so the private RSA key stays consistently uniform in RAM across consecutive HTTP requests.
+
+
+
+---
+
+## 5. System Resource Artifacts (The Static Translation Dictionaries)
+
+These XML-based key-value files live in your API's file hierarchy. They match the name of your marker class and supply translated strings contextually based on the user's header selection.
+
+* **`SharedResources.en.resx`:** The fallback dictionary populated with English string definitions.
+* **`SharedResources.ja.resx`:** The Japanese translation dictionary containing localized keys for your validation error properties.
+
+This completes your structural setup. Your frontend code remains highly dynamic with `ngx-translate`, while your ASP.NET tiers remain decoupled, clean, and cryptographically sound!
