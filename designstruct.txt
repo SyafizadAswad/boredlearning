@@ -1,0 +1,658 @@
+Your current architecture looks like a solid foundation for a classic **3-Tier / Clean Architecture** pattern. Mapping your Presenter (Controllers), Domain (Services), and Data (Repositories) clearly separates responsibilities, which is exactly what you want when building a scalable enterprise application.
+
+However, when introducing **localization (l10n) / internationalization (i10n)** to the backend, there are a few architectural bottlenecks in your current design—specifically regarding how the language state is handled and where translation logic actually belongs.
+
+Here is an analysis of your current diagram, followed by how to handle backend localization effectively.
+
+---
+
+## 1. Analysis of Your Current Diagram
+
+### The Good
+
+* **Clear Responsibility Separation:** Your mapping from `Controller -> Service -> Repository` flows sequentially, which aligns perfectly with ASP.NET Core web API conventions.
+* **Granular Domains:** Breaking things down into `機械 (Machine)`, `機械データ (Machine Data)`, and `ユーザー (User)` keeps the context clean.
+
+### Areas for Improvement
+
+* **The "Shared Resource Service" (`共有リソースService`) Bottleneck:** In your diagram, you have horizontal dependencies where your domain services depend on `共有リソースService` for translation (`翻訳機能`). If every service manually calls a translation method inside its business logic, your domain layer becomes cluttered with cross-cutting concerns.
+* **Missing Language Context Flow:** There is no indication of how the backend *knows* which language the user wants. In a web API, this should be treated as request-scoped metadata, not something passed manually down into every single method signature.
+
+---
+
+## 2. Where Does the Language Live on the Backend?
+
+In an ASP.NET Core backend, the requested language should **never be hardcoded or managed deep inside the business logic (Domain Layer)**. Instead, it should be captured at the entry point of the application and made available via dependency injection as context.
+
+### The Entry Point: Middleware & `Accept-Language`
+
+When your Angular frontend (`ngx-translate`) makes an API call, it should automatically attach an HTTP `Accept-Language` header (e.g., `Accept-Language: ja-JP` or `en-US`).
+
+ASP.NET Core has a built-in middleware precisely for this: **`RequestLocalizationMiddleware`**.
+
+* The middleware intercepts the request.
+* It parses the header and automatically sets `CultureInfo.CurrentCulture` and `CultureInfo.CurrentUICulture` for the **current asynchronous execution thread**.
+
+### Where Do the Error/Exception Translations Live?
+
+Because the thread's culture is set automatically by the middleware, your Domain services do not need a `- 翻訳機能` (translation function) inside them. Instead, you use ASP.NET Core’s built-in **`IStringLocalizer<T>`**.
+
+Here is how the clean architecture handles it without polluting the domain:
+
+```
+[ HTTP Request: Accept-Language: ja-JP ]
+                 │
+                 ▼
+    [ Localization Middleware ] ──► Sets Thread.CurrentUICulture = "ja-JP"
+                 │
+                 ▼
+       [ 機械Controller ]
+                 │
+                 ▼
+        [ 機械Service ] ──► Encounter Validation Error? 
+                 │          Throws exception or returns a translation key.
+                 ▼
+  [ Global Exception Filter ] ──► Uses IStringLocalizer to convert key to "ja-JP" text.
+                 │
+                 ▼
+[ HTTP Response: 400 Bad Request (Localized Message) ]
+
+```
+
+---
+
+## 3. Recommended Architectural Adjustments
+
+To refine your design, here is how you should restructure the localization responsibilities across your tiers:
+
+### A. Presenter / API Layer (The Validation & Exception Gate)
+
+* **What stays here:** This is where raw localization strings are transformed into HTTP responses.
+* **Validation Errors:** If you use `FluentValidation` or Data Annotations in your DTOs, hook them up to `IStringLocalizer`. The validation errors will be localized before they even hit your controllers.
+* **Global Exception Handler:** Instead of catching exceptions and localizing them inside each Service method, catch them globally using an ASP.NET Core Middleware or an `IExceptionFilter`. The global handler injects `IStringLocalizer` and translates the exception key based on the current thread's culture.
+
+### B. Domain / Service Layer (Pure Business Logic)
+
+* **Remove `翻訳機能` from individual services.** Your services shouldn't care *how* a string is translated into Japanese or English; they should only care about business rules.
+* If a service needs to throw an error, it should throw a custom exception with a **static error key** (e.g., `throw new MachineNotFoundException("ERROR_MACHINE_NOT_FOUND");`).
+* Let the Presenter tier convert `"ERROR_MACHINE_NOT_FOUND"` into *"機械が見つかりません"* or *"Machine not found"*.
+
+### C. Data / Repository Layer (Database Localization)
+
+If you need to localize **dynamic data stored in the database** (e.g., if a machine's status or description has both a Japanese name and an English name stored in the DB), the structure changes:
+
+* **Lookup Tables:** You can use a translation table pattern in Entity Framework (e.g., a `MachineDescription` table with columns `MachineId`, `LanguageCode`, and `Text`).
+* Your Repositories can read `CultureInfo.CurrentUICulture.Name` to automatically append a `.Where(x => x.LanguageCode == currentCulture)` clause to your EF Core queries.
+
+---
+
+## 4. Frontend (`ngx-translate`) Integration Tip
+
+Since you are using Angular with `ngx-translate`, keep your backend error handling elegant by matching keys:
+
+1. When the backend returns a validation or application error, return a structured JSON object:
+```json
+{
+  "errorCode": "MACHINE_UNDER_MAINTENANCE",
+  "parameters": { "machineId": "M001" }
+}
+
+```
+
+
+2. In your Angular app's `en.json` and `ja.json` files, map that exact key:
+* **en.json:** `"MACHINE_UNDER_MAINTENANCE": "Machine {{machineId}} is currently under maintenance."`
+* **ja.json:** `"MACHINE_UNDER_MAINTENANCE": "機械 {{machineId}} は現在メンテナンス中です。"`
+
+
+3. Pass the backend's `errorCode` directly into Angular's `translate` pipe. This offloads the translation rendering completely to the client side for standard application flow, leaving the backend localizer strictly responsible for infrastructure/system-level exceptions.
+
+How does this separation of translation responsibilities align with the complexity of the data you need to localize?
+
+-------------------
+Your current architecture looks like a solid foundation for a classic **3-Tier / Clean Architecture** pattern. Mapping your Presenter (Controllers), Domain (Services), and Data (Repositories) clearly separates responsibilities, which is exactly what you want when building a scalable enterprise application.
+
+However, when introducing **localization (l10n) / internationalization (i10n)** to the backend, there are a few architectural bottlenecks in your current design—specifically regarding how the language state is handled and where translation logic actually belongs.
+
+Here is an analysis of your current diagram, followed by how to handle backend localization effectively.
+
+---
+
+## 1. Analysis of Your Current Diagram
+
+### The Good
+
+* **Clear Responsibility Separation:** Your mapping from `Controller -> Service -> Repository` flows sequentially, which aligns perfectly with ASP.NET Core web API conventions.
+* **Granular Domains:** Breaking things down into `機械 (Machine)`, `機械データ (Machine Data)`, and `ユーザー (User)` keeps the context clean.
+
+### Areas for Improvement
+
+* **The "Shared Resource Service" (`共有リソースService`) Bottleneck:** In your diagram, you have horizontal dependencies where your domain services depend on `共有リソースService` for translation (`翻訳機能`). If every service manually calls a translation method inside its business logic, your domain layer becomes cluttered with cross-cutting concerns.
+* **Missing Language Context Flow:** There is no indication of how the backend *knows* which language the user wants. In a web API, this should be treated as request-scoped metadata, not something passed manually down into every single method signature.
+
+---
+
+## 2. Where Does the Language Live on the Backend?
+
+In an ASP.NET Core backend, the requested language should **never be hardcoded or managed deep inside the business logic (Domain Layer)**. Instead, it should be captured at the entry point of the application and made available via dependency injection as context.
+
+### The Entry Point: Middleware & `Accept-Language`
+
+When your Angular frontend (`ngx-translate`) makes an API call, it should automatically attach an HTTP `Accept-Language` header (e.g., `Accept-Language: ja-JP` or `en-US`).
+
+ASP.NET Core has a built-in middleware precisely for this: **`RequestLocalizationMiddleware`**.
+
+* The middleware intercepts the request.
+* It parses the header and automatically sets `CultureInfo.CurrentCulture` and `CultureInfo.CurrentUICulture` for the **current asynchronous execution thread**.
+
+### Where Do the Error/Exception Translations Live?
+
+Because the thread's culture is set automatically by the middleware, your Domain services do not need a `- 翻訳機能` (translation function) inside them. Instead, you use ASP.NET Core’s built-in **`IStringLocalizer<T>`**.
+
+Here is how the clean architecture handles it without polluting the domain:
+
+```
+[ HTTP Request: Accept-Language: ja-JP ]
+                 │
+                 ▼
+    [ Localization Middleware ] ──► Sets Thread.CurrentUICulture = "ja-JP"
+                 │
+                 ▼
+       [ 機械Controller ]
+                 │
+                 ▼
+        [ 機械Service ] ──► Encounter Validation Error? 
+                 │          Throws exception or returns a translation key.
+                 ▼
+  [ Global Exception Filter ] ──► Uses IStringLocalizer to convert key to "ja-JP" text.
+                 │
+                 ▼
+[ HTTP Response: 400 Bad Request (Localized Message) ]
+
+```
+
+---
+
+## 3. Recommended Architectural Adjustments
+
+To refine your design, here is how you should restructure the localization responsibilities across your tiers:
+
+### A. Presenter / API Layer (The Validation & Exception Gate)
+
+* **What stays here:** This is where raw localization strings are transformed into HTTP responses.
+* **Validation Errors:** If you use `FluentValidation` or Data Annotations in your DTOs, hook them up to `IStringLocalizer`. The validation errors will be localized before they even hit your controllers.
+* **Global Exception Handler:** Instead of catching exceptions and localizing them inside each Service method, catch them globally using an ASP.NET Core Middleware or an `IExceptionFilter`. The global handler injects `IStringLocalizer` and translates the exception key based on the current thread's culture.
+
+### B. Domain / Service Layer (Pure Business Logic)
+
+* **Remove `翻訳機能` from individual services.** Your services shouldn't care *how* a string is translated into Japanese or English; they should only care about business rules.
+* If a service needs to throw an error, it should throw a custom exception with a **static error key** (e.g., `throw new MachineNotFoundException("ERROR_MACHINE_NOT_FOUND");`).
+* Let the Presenter tier convert `"ERROR_MACHINE_NOT_FOUND"` into *"機械が見つかりません"* or *"Machine not found"*.
+
+### C. Data / Repository Layer (Database Localization)
+
+If you need to localize **dynamic data stored in the database** (e.g., if a machine's status or description has both a Japanese name and an English name stored in the DB), the structure changes:
+
+* **Lookup Tables:** You can use a translation table pattern in Entity Framework (e.g., a `MachineDescription` table with columns `MachineId`, `LanguageCode`, and `Text`).
+* Your Repositories can read `CultureInfo.CurrentUICulture.Name` to automatically append a `.Where(x => x.LanguageCode == currentCulture)` clause to your EF Core queries.
+
+---
+
+## 4. Frontend (`ngx-translate`) Integration Tip
+
+Since you are using Angular with `ngx-translate`, keep your backend error handling elegant by matching keys:
+
+1. When the backend returns a validation or application error, return a structured JSON object:
+```json
+{
+  "errorCode": "MACHINE_UNDER_MAINTENANCE",
+  "parameters": { "machineId": "M001" }
+}
+
+```
+
+
+2. In your Angular app's `en.json` and `ja.json` files, map that exact key:
+* **en.json:** `"MACHINE_UNDER_MAINTENANCE": "Machine {{machineId}} is currently under maintenance."`
+* **ja.json:** `"MACHINE_UNDER_MAINTENANCE": "機械 {{machineId}} は現在メンテナンス中です。"`
+
+
+3. Pass the backend's `errorCode` directly into Angular's `translate` pipe. This offloads the translation rendering completely to the client side for standard application flow, leaving the backend localizer strictly responsible for infrastructure/system-level exceptions.
+
+How does this separation of translation responsibilities align with the complexity of the data you need to localize?
+===========================
+Looking at your new diagram, it looks like you are mapping out your **Frontend Component Structure / Screen Transition Diagram** alongside the **API Schemas (Models)** they consume.
+
+The structure cleanly represents the authentication boundary—separating unauthenticated screens (`未ログイン画面一覧`) from the authenticated view dashboard (`ログイン後画面一覧`).
+
+Here is a structural and localization-focused review of how your frontend design looks.
+
+---
+
+## 1. Analysis of Your Screen Design & Flow
+
+### The Good
+
+* **Clear State Separation:** Grouping the Login (`ログイン画面`) and Registration (`ユーザー登録画面`) separately from the main dashboard makes it easy to handle Angular Route Guards (`CanActivate`).
+* **Logical API Mapping:** The bottom section (`APIスキーマ`) correctly maps which screen needs which structural data (e.g., `機械一覧画面` maps to `機械Model`, `表示設定画面` maps to `表示設定Table`).
+* **Consistent Navigation Actions:** Your `〜に移動()` methods accurately capture the routing intents between views.
+
+### Structural Opportunities for Improvement
+
+* **Redundant Language Lists (`言語リスト` & `言語選択()`):** You have manually included `- 言語リスト` and `- 言語選択()` on almost every single screen components (`ログイン`, `ユーザー登録`, `機械一覧`, `機械登録`, etc.). If you implement it this way, you'll end up copying and pasting the dropdown UI and language selection state logic into every single component file.
+* **Component-Level User Data Sprawl:** Every authenticated view lists `- ユーザーデータ`. Instead of each view fetching or maintaining this state independently, this should be handled globally.
+
+---
+
+## 2. Refactoring for Angular & `ngx-translate`
+
+To make this design production-ready and highly maintainable in Angular, you can optimize your component hierarchy and state management based on your diagram.
+
+### A. Centralize Language Selection (The Layout Pattern)
+
+Instead of putting language dropdown logic inside individual components, move it up to the **Layout** or **Shell** level.
+
+* **Unauthenticated Layout:** A simple shell wrapper for `ログイン画面` and `ユーザー登録画面`. Put the language dropdown in the header/footer of this layout *once*.
+* **Authenticated Layout (Dashboard Layout):** A sidebar/top-nav shell wrapper for all screens under `ログイン後画面一覧`. Put the language picker in the global top navigation bar.
+
+By doing this, your individual screen components (like `機械データ画面`) don't need to know about `- 言語リスト` or `- 言語選択()`. `ngx-translate` will automatically listen to language changes globally and translate the active view instantly.
+
+### B. Use an Angular Service for Auth State (`ユーザーデータ`)
+
+Instead of having `- ユーザーデータ` explicitly loaded inside every single dashboard screen:
+
+* Create an `AuthService` (or `UserService`) that holds the logged-in user profile in a reactive state (e.g., an RxJS `BehaviorSubject` or Angular Signal).
+* If a header component needs to display the user's name, it reads from that single service. The individual data views remain decoupled from global user metadata.
+
+---
+
+## 3. Recommended Frontend Architecture Mapping
+
+If we take your design and translate it into standard Angular folder and component structures, here is how the responsibilities align perfectly:
+
+| Diagram Item | Angular Architecture Equivalent | Role / Responsibility |
+| --- | --- | --- |
+| **未ログイン画面一覧** | `AuthLayoutComponent` | Parent layout hosting the public language picker. |
+| **ログイン / ユーザー登録画面** | `LoginComponent`, `RegisterComponent` | Feature components loaded inside the `AuthLayout`. |
+| **ログイン後画面一覧** | `MainLayoutComponent` | Shell layout featuring the sidebar, header (with User Data), and secure language picker. Protected by an `AuthGuard`. |
+| **各画面 (機械一覧, etc.)** | `MachineListComponent`, etc. | Core feature components focused purely on displaying tables/data. |
+| **APIスキーマ** | `TypeScript Interfaces` (`machine.model.ts`) | Strict type definitions matching your backend C# DTOs exactly. |
+
+---
+
+## 4. Quick Implementation Check for `ngx-translate`
+
+When you implement this layout, your root configuration or global navigation component will handle switching the language simply like this:
+
+```typescript
+import { Component } from '@angular/core';
+import { TranslateService } from '@ngx-translate/core';
+
+@Component({
+  selector: 'app-lang-picker',
+  template: `
+    <select (change)="switchLanguage($event)">
+      <option value="ja">日本語</option>
+      <option value="en">English</option>
+    </select>
+  `
+})
+export class LangPickerComponent {
+  constructor(private translate: TranslateService) {}
+
+  switchLanguage(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    this.translate.use(target.value); // Switches the entire app instantly
+  }
+}
+
+```
+
+This keeps your actual business screens completely clean and focused on showing machine metrics.
+
+Are you planning to use a standard UI library (like Angular Material or Bootstrap) to structure the navigation and layouts for these screens?
+
+==============================
+Your draft in `image_c6899b.png` outlines a very logical, step-by-step event flow for a standard **Create/Update save button sequence**. It perfectly bridges UI interactions, client-side validation, user confirmation, asynchronous API communication, and error handling.
+
+Here is a breakdown of what the concepts and instructions in your draft mean, followed by an overall review.
+
+---
+
+## 1. Terminology Breakdown: What do these mean?
+
+### **ViewModel (機械一覧画面ViewModel)**
+
+In the context of an Angular frontend application, a **ViewModel** represents the local, reactive state of your view (component).
+
+* It is **not** the database model.
+* It is a data structure on the frontend that binds directly to your HTML template.
+* In your case, this ViewModel holds the current form values for the machine being added/edited, a string field for a UI text feedback message (the `メッセージ` mentioned in your steps), and loading/UI flags.
+
+### **Input Check (入力チェック)**
+
+This is **Client-Side Validation** (e.g., Angular Reactive Forms validators). Before hitting the network, it ensures that required fields aren't empty, numbers are within valid ranges, and date formats are correct.
+
+### **Request Body (リクエストボディ)**
+
+The JSON payload sent over the HTTP POST/PUT request to your ASP.NET Core backend API. Your Angular service takes the raw data from the frontend `ViewModel`, maps it to match your backend DTO schema, and passes it into the HTTP body.
+
+---
+
+## 2. Step-by-Step Analysis of Your Flow
+
+Let's translate your Japanese specifications from `image_c6899b.png` into clean programmatic steps:
+
+* **Step 1: Clear old UI state**
+* *What it does:* Clears out any lingering success/error text messages on the screen so the user doesn't see old feedback.
+
+
+* **Steps 2 & 3: Local Guard**
+* *What it does:* Runs validation. If it returns `false`, it halts the process (`処理を終了する`) immediately before wasting network bandwidth.
+
+
+* **Steps 4 & 5: User Intent Confirmation**
+* *What it does:* Triggers a confirmation dialog (e.g., a modal or a browser `confirm()`). If they click "No", it gracefully cancels the operation.
+
+
+* **Step 6: Asynchronous Network Call**
+* *What it does:* Sends the update/create data packet to your ASP.NET Web API.
+
+
+* **Step 6.1 & 6.1.1: Backend Error Handling**
+* *What it does:* Catches HTTP error statuses (like `400 Bad Request` or `500 Internal Server Error`). It parses the backend error payload (`エラーレスポンスのmessage`) and binds it to the ViewModel's message string to display to the user.
+
+
+* **Step 7: Success Path**
+* *What it does:* If the API returns an HTTP `2xx` status, it updates the ViewModel's message property to show a success message ("更新しました。").
+
+
+
+---
+
+## 3. Overall Review & Improvements
+
+Overall, your design is **excellent, highly structured, and production-ready**. It handles the standard happy paths and error paths flawlessly.
+
+To take this from a good specification to an exceptional, clean Angular code implementation, consider these minor refinements:
+
+### 1. Fix a Small Context Typo in your Text
+
+In Step 6, 6.1.1, and 7, you refer to **`機械一覧画面ViewModel`** (Machine *List* Screen ViewModel). However, since your action is adding or updating a specific machine, this flow likely belongs to the **`機械登録画面`** (Machine Registration Screen) or an edit modal. Make sure your text reflects the correct component scope so developers don't get confused between the table list and the creation form.
+
+### 2. Leverage Localization (Connecting to your `ngx-translate` setup)
+
+Since you are using `ngx-translate`, **do not hardcode** the strings inside your component logic like you did in the draft (`「更新します。よろしいですか？」` or `「更新しました。」`).
+Instead, your steps should assign *translation keys* to the ViewModel:
+
+* **Step 4:** Display confirmation using translation key `MESSAGES.CONFIRM_UPDATE`.
+* **Step 6.1.1:** Display `MESSAGES.ERROR_OCCURRED` + `error.message` (translated by the backend context we discussed earlier!).
+* **Step 7:** Display translation key `MESSAGES.SUCCESS_UPDATE`.
+
+### 3. Handle UI Disabling (Preventing Double-Submits)
+
+Between **Step 5** (User clicks Yes) and **Step 6** (API returns a response), there is a brief period of network latency. It is highly recommended to add a "Loading" step here:
+
+* **Step 5.5:** Set `ViewModel.isLoading = true` and disable the Save button.
+* **Step 6.2 (End of API call):** Set `ViewModel.isLoading = false` to re-enable the UI.
+This prevents the user from clicking the button multiple times and creating duplicate database records.
+
+---
+
+## How it looks in Angular pseudo-code
+
+When you write this in your component, it will map beautifully to clean TypeScript:
+
+```typescript
+onSave() {
+  // 1. Initialize message
+  this.viewModel.message = '';
+
+  // 2 & 3. Input Check
+  if (this.machineForm.invalid) return;
+
+  // 4 & 5. Confirmation (using localized strings)
+  const confirmMsg = this.translate.instant('MESSAGES.CONFIRM_UPDATE');
+  if (!window.confirm(confirmMsg)) return;
+
+  // Prevent double click
+  this.viewModel.isLoading = true;
+
+  // 6. Call API
+  this.machineService.updateMachine(this.machineForm.value).subscribe({
+    next: (response) => {
+      // 7. Success
+      this.viewModel.message = this.translate.instant('MESSAGES.SUCCESS_UPDATE');
+      this.viewModel.isLoading = false;
+    },
+    error: (err) => {
+      // 6.1.1 Error Handling
+      const fallbackError = this.translate.instant('MESSAGES.ERROR_OCCURRED');
+      this.viewModel.message = `${fallbackError}: ${err.error?.message || err.message}`;
+      this.viewModel.isLoading = false;
+    }
+  });
+}
+
+```
+
+Are you planning to handle validation errors dynamically next to each input field, or are you satisfied with summarizing errors in the main ViewModel message block?
+=========================
+Here is how you can write those specifications in the exact same procedural style as your screenshot draft.
+
+By writing them this way, you clearly separate the UI interaction (the event trigger) from the data binding (the state change).
+
+---
+
+## 1. 【言語選択ドロップダウン】 (Language Selection Dropdown)
+
+This event handles opening the dropdown and changing the application language across the entire layout.
+
+> **【言語選択ドロップダウンのクリック】**
+> 1. 利用可能な言語の一覧（日本語、英語など）を画面上にプルダウン表示する。
+> 
+> 
+> **【言語リストから特定の言語を選択】**
+> 1. 選択された言語の識別子（例: `ja` または `en`）を取得する。
+> 2. クライアント側の翻訳サービス（`ngx-translate`）へ新しい言語を設定する。
+> 3. 画面（ViewModel）に表示されている固定文字列が、選択された言語へ動的に一括更新される。
+> 4. ユーザーが次回以降も同じ言語でアプリを開けるよう、選択された言語コードをブラウザのローカルストレージ（`LocalStorage`）に保存する。
+> 
+> 
+
+---
+
+## 2. 【ユーザー名表示ボタン】 (Username Display Button/Widget)
+
+This flow explains how the UI retrieves and displays the active user's credentials on load, and how it redirects them if clicked.
+
+> **【画面初期化（ロード時）】**
+> 1. 認証管理サービス（`AuthService`）から、現在ログインしているユーザーのセッション情報を参照する。
+> 2. セッション情報が存在する場合：
+> * ヘッダーのユーザー名ボタンのテキストに「ユーザー名」を設定して画面に表示する。
+> 
+> 
+> 3. セッション情報が存在しない（未ログイン）状態の場合：
+> * 自動的に【ログイン画面】へ強制移動（リダイレクト）する。
+> 
+> 
+> 
+> 
+> **【ユーザー名ボタンのクリック】**
+> 1. ドロップダウンメニュー（「表示設定へ移動」「ログアウト」など）を画面に表示する。
+> * ※「表示設定へ移動」がクリックされた場合、表示設定画面への移動処理を呼び出す。
+> * ※「ログアウト」がクリックされた場合、セッション情報を破棄して【ログイン画面】へ移動する。
+> 
+> 
+> 
+> 
+
+---
+
+## Why writing it this way is helpful
+
+* **Declarative and Event-Driven:** Just like your original save button draft, this breaks down actions into *Triggers* (ユーザー名ボタンのクリック) and *System States* (セッション情報を参照する).
+* **Ready for LocalStorage:** Adding the saving step in the language block ensures that when a user refreshes the page or changes screens (e.g., from `機械一覧画面` to `機械データ画面`), the application doesn't accidentally revert to the default language.
+
+Would you like to draft the specifications for the "Display Settings" (`表示設定画面`) save event next, or are you ready to look at how these layout components map to Angular code?
+=======================
+
+Let’s break this down. First, I completely understand that you are locked into this specific requirement. In the real world, enterprise requirements don't always align with textbook security standards, and as an engineer, your job is to build the machine requested while making it as safe as possible within those boundaries.
+
+Before writing the event flow, we need to address a critical technical detail regarding how cryptography works, because a direct **"decrypt the hashed database password"** step is mathematically impossible with standard hashing.
+
+### A Quick Reality Check on "Hashing" vs. "Encryption"
+
+* **Hashes are a one-way street:** Algorithms like BCrypt, Argon2, or SHA-256 cannot be "decrypted." Once you hash a password, you can never turn it back into plain text.
+* **The Solution for Your Requirement:** To make your required workflow function exactly as you described (where the backend must decrypt things to compare them), the frontend and the database must use **reversible encryption** (like AES-256) rather than true hashing, or the frontend encrypts/hashes while the backend uses a verifiable hashing mechanism.
+
+To prevent an attacker from simply copy-pasting a stolen frontend payload string into the login form and successfully logging in (a classic Pass-the-Hash/Replay attack), we can use a **timestamped payload or a unique initialization vector (IV)**.
+
+Here is how to write the specific step-by-step logic for your events in the same style as your documentation.
+
+---
+
+## 1. 【ユーザー登録ボタン】 (User Registration Flow)
+
+This specification outlines how the encrypted credentials are pass down and safely committed to the database.
+
+> **【登録ボタンのクリック】**
+> 1. 入力チェック（ユーザーID、ユーザー名、パスワードの必須入力・桁数チェック等）を呼び出す。
+> 2. 入力チェックの戻り値が `false` の場合、処理を終了する。
+> 3. フロントエンド側で、入力された生パスワードを独自の暗号化形式（ハッシュ/暗号化文字列）に変換する。
+> 4. ユーザー登録のAPI（リクエストボディにユーザーID、ユーザー名、フロント側暗号化パスワードを設定）を呼び出す。
+> 5. **【バックエンド側の処理】**：
+> * 5.1. 受信したリクエストボディからフロント側暗号化パスワードを取り出し、一時的に復号（デコード）する。
+> * 5.2. 復号されたパスワードを、データベース保存用の強力なハッシュアルゴリズム（例: BCryptなど、フロント側とは異なる方式）で一方向ハッシュ化する。
+> * 5.3. ユーザーID、ユーザー名、およびデータベース用ハッシュパスワードを【ユーザーRepository】を介してDBへ保存する。
+> 
+> 
+> 6. APIから正常以外のレスポンスが返って来た場合：
+> * 6.1. エラーメッセージを表示し、処理を終了する。
+> 
+> 
+> 7. メッセージ「登録が完了しました。」を画面に表示し、ログイン画面へ移動する。
+> 
+> 
+
+---
+
+## 2. 【ログインボタン】 (User Login Flow)
+
+This is the flow that enforces your constraint: copy-pasting raw database hashes or old intercepted frontend strings will fail, and only entering the "actual" password in the UI works.
+
+> **【ログインボタンのクリック】**
+> 1. 入力チェック（ユーザーID、パスワードの入力確認）を呼び出す。
+> 2. フロントエンド側で、フォームに入力された生の文字列を暗号化する。
+> * ※この際、入力ごとに変化する動的要素（タイムスタンプやワンタイムトークン等）を暗号化に含めることで、過去の暗号化ペイロードのコピペによる不正ログインを防止する。
+> 
+> 
+> 3. ユーザーログインのAPIを呼び出す。
+> 4. **【バックエンド側の処理】**：
+> * 4.1. フロント側から送られてきた暗号化データを復号し、ユーザーが画面に入力した「生のパスワード文字列」を取り出す。
+> * 4.2. データベースから該当するユーザーIDの登録情報（DB用ハッシュパスワード）を取得する。
+> * 4.3. 4.1で復号した生パスワードと、4.2で取得したDB用ハッシュパスワードが一致するか検証（Verify）する。
+> * 4.4. 一致しない場合、またはフロント側暗号化の検証（タイムスタンプの有効期限切れ等）に失敗した場合、認証エラー（401 Unauthorized）を返す。
+> 
+> 
+> 5. APIから認証エラーまたは正常以外のレスポンスが返って来た場合：
+> * 5.1. メッセージ「ユーザーIDまたはパスワードが間違っています。」を表示し、処理を終了する。
+> 
+> 
+> 6. ログイン成功時、セッション（JWTトークン等）を発行し、認証管理サービスへユーザーデータを保存して【機械一覧画面】へ移動する。
+> 
+> 
+
+---
+
+## 3. Review of this Architecture
+
+Since you mentioned you *have* to follow this design due to external requirements, here is how you can make it as resilient as possible under those constraints:
+
+### Use AES for Frontend "Hashing"
+
+Since the backend *must* decrypt the incoming string to get the original password text, the frontend cannot use a pure SHA-256 hash. It must use an encryption method like **AES**. You can hardcode a client-side obfuscated key/IV, or grab a dynamic public key from the backend when the login page loads (similar to an asymmetric RSA implementation).
+
+### Preventing the Copy-Paste (Replay Attack)
+
+You specified that copy-pasting the payload string shouldn't work. The best way to enforce this in your step 4.1 backend check is to pass a **timestamp** inside the frontend's encrypted string.
+
+* If a malicious user inspects the network, copies the encrypted blob, and tries to send it 5 minutes later, the backend will decrypt it, see that the timestamp inside the payload is expired, and reject it—even though the password string matches.
+
+This gives you a strong defense layer despite the unusual constraint! Does this approach to handling the frontend string decryption match up well with how you envisioned implementing the payload security?
+
+==============================
+To implement an **instant update (autosave)** feature for the column visibility settings, the event needs to fire every time a checkbox state changes.
+
+Regarding your database design, having a `lastupdate` column in the **User Master** table is completely fine, but if you update it every time a user toggles a single column visibility checkbox, you might accidentally overwrite the timestamp of when the user actually changed their password or username. A cleaner approach is to make sure your API updates both tables in a single database transaction.
+
+Here is how you can write this specification in your exact documentation style.
+
+---
+
+## 1. 【表示設定チェックボックスの切り替え（自動保存）】
+
+This event triggers immediately whenever a user checks or unchecks any column option.
+
+> **【列表示チェックボックスの変更イベント】**
+> 1. ユーザーが特定の列のチェックボックス（表示／非表示）を切り替える。
+> 2. 画面（ViewModel）上の対象の列名に対応する `displayflag` （true / false）を即座に更新する。
+> 3. 二重リクエストやサーバーへの過剰な負荷を防ぐため、UI上のチェックボックスを一時的に非活性（ポーリング・非活性化）にする。
+> 4. 表示設定更新のAPIを非同期で呼び出す。
+> * リクエストボディには、「ユーザーID」「変更された列名（columname）」「新しい表示フラグ（displayflag）」を設定する。
+> 
+> 
+> 5. **【バックエンド側の処理】**：
+> * 5.1. 受信したユーザーIDと列名を基に、【表示設定Table】の該当レコードの `displayflag` を更新（または既存レコードがない場合はインサート）する。
+> * 5.2. 同一のトランザクション内で、【ユーザーMaster】の該当ユーザーの `lastupdate` カラムを現在のシステム日時に更新する。
+> * 5.3. 処理が正常に完了したら、成功レスポンス（HTTP 200 OK）を返す。
+> 
+> 
+> 6. APIから正常レスポンスが返って来た場合：
+> * 6.1. UIの非活性化を解除し、Angularのデータテーブルへ表示変更を即座に反映（列の表示/非表示を切り替え）する。
+> 
+> 
+> 7. APIから正常以外のレスポンス（エラー）が返って来た場合：
+> * 7.1. 画面に「設定の保存に失敗しました」とエラーメッセージを表示する。
+> * 7.2. データベースの更新が失敗しているため、画面のチェックボックスの状態を**変更前の元の状態に自動で戻す（ロールバック処理）**。
+> * 7.3. UIの非活性化を解除する。
+> 
+> 
+> 
+> 
+
+---
+
+## 2. Architectural Recommendation for Handling 6–7 Columns
+
+Since you have 6 to 7 columns, saving them instantly can be tackled in two different ways depending on how you want your payload to look:
+
+### Approach A: Send Single Rows (Highly Recommended for Instant Save)
+
+Every time a checkbox is clicked, send *only* that specific column's change to the backend.
+
+* **Payload:** `{ "userId": "U001", "columnName": "MachineStatus", "displayFlag": false }`
+* **Pros:** Very lightweight payload, easy to map to your current `displaysetting table` schema.
+
+### Approach B: Send the Entire Payload (Bulk Upsert)
+
+Every time a checkbox is clicked, send the status of *all* 6–7 columns at once as an array.
+
+* **Payload:** ```json
+[
+{ "columnName": "MachineID", "displayFlag": true },
+{ "columnName": "MachineName", "displayFlag": true },
+{ "columnName": "Status", "displayFlag": false }
+]
+```
+
+```
+
+
+* **Pros:** Backend code doesn't need to know *which* checkbox changed; it just wipes the old settings for that `userId` in the DB and inserts the new list, or loops and updates them. It guarantees frontend and backend are always perfectly in sync.
+
+### 💡 Crucial Frontend Tip: Debouncing (Optimizing the UI)
+
+Since this is an instant save feature, if a user quickly clicks 3 different checkboxes in one second, it will trigger 3 simultaneous HTTP requests to your ASP.NET backend. This can cause a "race condition" where the `lastupdate` timestamp in the database gets locked or overwritten incorrectly.
+
+In Angular, you can use RxJS operators like **`debounceTime(300)`** or simply disable the checkboxes during the `ViewModel.isLoading` state (as mentioned in Step 3 and 6.1) to ensure the previous database write finishes before the user can trigger the next one!
