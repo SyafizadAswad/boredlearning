@@ -275,6 +275,7 @@ Since your `MachineData` table uses a Composite Primary Key (`MachineId` + `Data
 
 Because `MachineId` is the first part of that key, queries filtering by `Where(d => d.MachineId == machineId)` and ordering by `DataDate` will be incredibly fast, even with millions of rows. Your schema is perfectly optimized for this type of time-series retrieval!
 
+<<<<<<< HEAD
 ======================
 Here is the C# logic for your input validation checks.
 
@@ -340,6 +341,52 @@ public void ValidateUserInput(string userId, string password, string username)
     if (username.Length > 30)
     {
         throw new BadRequestException("VALIDATION.USERNAME_TOO_LONG"); // 引数:usernameが30文字以下ではありません。
+=======
+....
+To get Swagger (OpenAPI) to show localized error messages based on your `.resx` files, you need to configure Swagger to send the `Accept-Language` header along with its API requests.
+
+By default, Swagger UI does not include this header in its "Try it out" requests. You can add a custom **Operation Filter** in your Web API project to automatically inject a language dropdown or an input field for the header directly into the Swagger UI interface.
+
+Here is how to set it up:
+
+---
+
+### Step 1: Create an `AcceptLanguageHeaderFilter`
+
+Create a new file in your **Middleware** or a new **Filters** folder inside your Web API project:
+
+```csharp
+using Microsoft.OpenApi.Any;
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerGen;
+
+namespace MachineSurveillance.Api.Filters;
+
+public class AcceptLanguageHeaderFilter : IOperationFilter
+{
+    public void Apply(OpenApiOperation operation, OperationFilterContext context)
+    {
+        operation.Parameters ??= new List<OpenApiParameter>();
+
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = "Accept-Language",
+            In = ParameterLocation.Header,
+            Required = false,
+            Description = "Language preference for error messages (e.g., en, ja, ms)",
+            Schema = new OpenApiSchema
+            {
+                Type = "string",
+                Default = new OpenString("en"),
+                Enum = new List<IOpenApiAny>
+                {
+                    new OpenString("en"),
+                    new OpenString("ja"),
+                    new OpenString("ms")
+                }
+            }
+        });
+>>>>>>> 21d81cbd3c28cfa522d56b7fa385000056ed9127
     }
 }
 
@@ -347,6 +394,7 @@ public void ValidateUserInput(string userId, string password, string username)
 
 ---
 
+<<<<<<< HEAD
 ### Architectural Design Tip
 
 Notice that instead of passing the raw Japanese strings into the custom `BadRequestException`, I used machine-readable error keys (like `"VALIDATION.PASSWORD_WEAK_COMPOSITION"`).
@@ -420,10 +468,59 @@ public void ValidateMachineInput(string machineId, string machineName, string lo
     {
         throw new BadRequestException("VALIDATION.INSTALL_DATE_INVALID_FORMAT"); // 引数:installDateが未設定か 日付形式以外が設定されています。
     }
+=======
+### Step 2: Register the Filter in `Program.cs`
+
+Now, update your Swagger generation setup in `Program.cs` to use this new filter:
+
+```csharp
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo { Title = "Machine Surveillance API", Version = "v1" });
+    
+    // Inject the Accept-Language header dropdown into every endpoint
+    options.OperationFilter<AcceptLanguageHeaderFilter>();
+});
+
+```
+
+Make sure that your localization middleware is also correctly configured and placed **before** your endpoint routing, as we set up earlier:
+
+```csharp
+var supportedCultures = new[] { "en", "ja", "ms" };
+var localizationOptions = new RequestLocalizationOptions()
+    .SetDefaultCulture("en")
+    .AddSupportedCultures(supportedCultures)
+    .AddSupportedUICultures(supportedCultures);
+
+app.UseRequestLocalization(localizationOptions);
+
+// Ensure this matches where your middleware runs
+app.UseMiddleware<ExceptionHandlingMiddleware>(); 
+
+```
+
+---
+
+### How to Test It in Swagger UI
+
+1. Run your Web API project and open the Swagger UI page (`/swagger/index.html`).
+2. Expand any endpoint that throws your custom exception (e.g., a GET request for a machine ID that doesn't exist) and click **Try it out**.
+3. You will see a new parameter field named **`Accept-Language`** with a dropdown menu containing `en`, `ja`, and `ms`.
+4. Select **`ja`** and click **Execute**.
+
+Your `ExceptionHandlingMiddleware` will catch the exception, read the `ja` preference passed via Swagger, grab the values from `ErrorMessages.ja.resx`, and return your structured JSON payload:
+
+```json
+{
+  "errorCode": "MACHINE_NOT_FOUND",
+  "message": "指定されたマシンが見つかりません。"
+>>>>>>> 21d81cbd3c28cfa522d56b7fa385000056ed9127
 }
 
 ```
 
+<<<<<<< HEAD
 ### A Quick Note on Rule #3 vs Rule #4
 
 Looking closely at the sheet, **Rule 3** says the machine ID must be half-width numbers only, but **Rule 4** says it must fit the format `AAA-0000` (which clearly uses letters and a hyphen).
@@ -511,3 +608,6 @@ To keep them straight in your head, look at how they split up the work:
 4. **HttpInterceptor** pauses that request, grabs the JWT from storage, sticks it into the header, and fires it off to your API.
 
 They work as a tag-team to make sure your front-end UI stays protected and your back-end API requests stay authenticated!
+=======
+If you switch the dropdown to `en` or leave it empty, it will automatically fallback to your default English `.resx` values!
+>>>>>>> 21d81cbd3c28cfa522d56b7fa385000056ed9127
