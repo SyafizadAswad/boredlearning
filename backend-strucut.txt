@@ -274,3 +274,240 @@ public async Task<List<MachineDataDto>> GetMachineHistoryAsync(int machineId, in
 Since your `MachineData` table uses a Composite Primary Key (`MachineId` + `DataDate`), the database automatically creates a clustered index on these columns.
 
 Because `MachineId` is the first part of that key, queries filtering by `Where(d => d.MachineId == machineId)` and ordering by `DataDate` will be incredibly fast, even with millions of rows. Your schema is perfectly optimized for this type of time-series retrieval!
+
+======================
+Here is the C# logic for your input validation checks.
+
+Looking at your requirements specification, there are a few phrasing details in the Japanese notes that we should handle carefully to ensure the code behaves exactly as intended:
+
+* **Item 2 & 8:** The Japanese text says `4桁以上` (4 digits or more) and `30文字以上` (30 characters or more) but the error messages say `4桁ではありません` (Not 4 digits) and `30文字以下ではありません` (Not 30 characters or less). Based on standard validation logic, I have coded these to throw an error if the ID is **less than 4 characters** or if the username **exceeds 30 characters**.
+* **Item 3:** Checks for non-half-width numbers (`半額数字以外`). I used a regular expression (`^[0-9]+$`) to ensure *only* half-width digits 0–9 are allowed.
+* **Item 6:** Requires a mix of numbers, letters, and symbols (`数字、英文字、記号`). I used positive lookaheads in a regular expression to guarantee the password contains at least one of each.
+
+Here is how you can implement these clean `if` statements inside your presentation/DTO validation layer or application service:
+
+```csharp
+using System;
+using System.Text.RegularExpressions;
+
+public void ValidateUserInput(string userId, string password, string username)
+{
+    // 1. ユーザーIDが未設定の場合 (If User ID is missing/null/empty)
+    if (string.IsNullOrWhiteSpace(userId))
+    {
+        throw new BadRequestException("VALIDATION.USER_ID_REQUIRED"); // 引数:userIdが設定されていません。
+    }
+
+    // 2. ユーザーIDが4桁未満の場合 (If User ID is less than 4 characters)
+    if (userId.Length < 4)
+    {
+        throw new BadRequestException("VALIDATION.USER_ID_INVALID_LENGTH"); // 引数:userIdが4桁ではありません。
+    }
+
+    // 3. ユーザーIDが半角数字以外が含まれている場合 (If User ID contains anything other than half-width numbers)
+    if (!Regex.IsMatch(userId, @"^[0-9]+$"))
+    {
+        throw new BadRequestException("VALIDATION.USER_ID_NOT_NUMERIC"); // 引数:userIdに半角数字以外が設定されています。
+    }
+
+    // 4. パスワードが未設定の場合 (If Password is missing/null/empty)
+    if (string.IsNullOrWhiteSpace(password))
+    {
+        throw new BadRequestException("VALIDATION.PASSWORD_REQUIRED"); // 引数:passwordが設定されていません。
+    }
+
+    // 5. パスワードが8文字未満の場合 (If Password is less than 8 characters)
+    if (password.Length < 8)
+    {
+        throw new BadRequestException("VALIDATION.PASSWORD_TOO_SHORT"); // 引数:passwordが8桁以上ではありません。
+    }
+
+    // 6. パスワードが少なくとも数字、英文字、記号の組み合わせではない場合 
+    // (If Password doesn't contain a mix of numbers, letters, and symbols)
+    // Regex breakdown: (?=.*\d) checks for number, (?=.*[a-zA-Z]) checks for letter, (?=.*[^a-zA-Z0-9]) checks for symbol
+    if (!Regex.IsMatch(password, @"^(?=.*\d)(?=.*[a-zA-Z])(?=.*[^a-zA-Z0-9]).+$"))
+    {
+        throw new BadRequestException("VALIDATION.PASSWORD_WEAK_COMPOSITION"); // 引数:passwordが少なくとも数字、英文字、記号の組み合わせが必要です。
+    }
+
+    // 7. ユーザー名が未設定の場合 (If Username is missing/null/empty)
+    if (string.IsNullOrWhiteSpace(username))
+    {
+        throw new BadRequestException("VALIDATION.USERNAME_REQUIRED"); // 引数:usernameが設定されていません。
+    }
+
+    // 8. ユーザー名が30文字を超える場合 (If Username is more than 30 characters)
+    if (username.Length > 30)
+    {
+        throw new BadRequestException("VALIDATION.USERNAME_TOO_LONG"); // 引数:usernameが30文字以下ではありません。
+    }
+}
+
+```
+
+---
+
+### Architectural Design Tip
+
+Notice that instead of passing the raw Japanese strings into the custom `BadRequestException`, I used machine-readable error keys (like `"VALIDATION.PASSWORD_WEAK_COMPOSITION"`).
+
+When your custom middleware catches this `BadRequestException`, it can automatically map it to a `400 Bad Request` HTTP response body, passing this exact key straight to your Angular frontend's `ngx-translate` service!
+
+....機械情報登録API
+
+Here is the C# validation logic for this next set of specifications, which seems to handle machine/device registrations.
+
+A few technical observations on these requirements before looking at the code:
+
+* **Item 4 (`AAA-0000` format):** The spec requires exactly 3 uppercase letters, a hyphen, and 4 digits. I used the regular expression `^[A-Z]{3}-[0-9]{4}$` to catch this precisely.
+* **Items 7 & 8 (`installDate`):** Item 7 checks if it's missing, and Item 8 explicitly checks if it fails to parse into a valid date format. If your DTO handles `installDate` as a `string` (or a nullable type) from the request, using `DateTime.TryParse` is the safest way to validate both conditions cleanly.
+
+Here are the `if` statements for each condition:
+
+```csharp
+using System;
+using System.Text.RegularExpressions;
+
+public void ValidateMachineInput(string machineId, string machineName, string location, string installDateStr)
+{
+    // 1. 機械IDが未設定の場合 (If Machine ID is missing/null/empty)
+    if (string.IsNullOrWhiteSpace(machineId))
+    {
+        throw new BadRequestException("VALIDATION.MACHINE_ID_REQUIRED"); // 引数:machineIdが設定されていません。
+    }
+
+    // 2. 機械IDが7桁以上の場合 -> 実際のエラー文面「7桁ではありません」に合わせ、7桁以外を弾く
+    // (If Machine ID is not exactly 7 characters)
+    if (machineId.Length != 7)
+    {
+        throw new BadRequestException("VALIDATION.MACHINE_ID_INVALID_LENGTH"); // 引数:machineIdが7桁ではありません。
+    }
+
+    // 3. 機械IDが半角数字以外が含まれている場合 (If Machine ID contains non-half-width digits)
+    if (!Regex.IsMatch(machineId, @"^[0-9]+$"))
+    {
+        throw new BadRequestException("VALIDATION.MACHINE_ID_NOT_NUMERIC"); // 引数:machineIdに半角数字以外が設定されています。
+    }
+
+    // 4. 機械IDがフォーマット以外の入力の場合 (If Machine ID does not match the 'AAA-0000' format)
+    // Note: If rule 3 and 4 contradict each other in your spec (rule 3 says only numbers, but rule 4 asks for letters/hyphens), 
+    // rule 4 likely overrides rule 3, or they apply to different system contexts. The regex below enforces AAA-0000.
+    if (!Regex.IsMatch(machineId, @"^[A-Z]{3}-[0-9]{4}$"))
+    {
+        throw new BadRequestException("VALIDATION.MACHINE_ID_INVALID_FORMAT"); // 引数:machineIDはAAA-0000のフォーマット以外に設定されています。
+    }
+
+    // 5. 機械名が未設定の場合 (If Machine Name is missing/null/empty)
+    if (string.IsNullOrWhiteSpace(machineName))
+    {
+        throw new BadRequestException("VALIDATION.MACHINE_NAME_REQUIRED"); // 引数:machineNameが設定されていません。
+    }
+
+    // 6. 設置場所が未設定の場合 (If Location is missing/null/empty)
+    if (string.IsNullOrWhiteSpace(location))
+    {
+        throw new BadRequestException("VALIDATION.LOCATION_REQUIRED"); // 引数:locationが設定されていません。
+    }
+
+    // 7. 設置日が未設定の場合 (If Install Date string is missing/null/empty)
+    if (string.IsNullOrWhiteSpace(installDateStr))
+    {
+        throw new BadRequestException("VALIDATION.INSTALL_DATE_REQUIRED"); // 引数:installDateが設定されていません。
+    }
+
+    // 8. 設置日が未設定か 日付形式以外が設定されている場合 (If Install Date is invalid date format)
+    if (!DateTime.TryParse(installDateStr, out DateTime parsedDate))
+    {
+        throw new BadRequestException("VALIDATION.INSTALL_DATE_INVALID_FORMAT"); // 引数:installDateが未設定か 日付形式以外が設定されています。
+    }
+}
+
+```
+
+### A Quick Note on Rule #3 vs Rule #4
+
+Looking closely at the sheet, **Rule 3** says the machine ID must be half-width numbers only, but **Rule 4** says it must fit the format `AAA-0000` (which clearly uses letters and a hyphen).
+
+If these rules are applied to the exact same field, Rule 3 will fail when a valid Rule 4 string is entered. If they are meant to be mutually exclusive (e.g., your system handles two types of machine IDs), you might want to wrap them in an `if/else` block depending on the type of machine being checked!
+
+========
+
+It’s completely normal to find the combination of Guards and Interceptors a bit confusing at first since they both deal with security, but they operate at entirely different levels of your Angular application.
+
+If an **AuthGuard** is the security guard standing at the front door deciding who gets into the building, an **HttpInterceptor** is the personal assistant who manages all the paperwork going in and out of the building.
+
+Here is exactly what an interceptor is, what it does for JWT authentication, and how it compares to a guard.
+
+---
+
+## What is an HttpInterceptor?
+
+An `HttpInterceptor` is an Angular feature that allows you to inspect, modify, or block outgoing HTTP requests and incoming HTTP responses globally.
+
+Instead of manually adding your JWT bearer token to every single `httpClient.get()` or `httpClient.post()` call in your services, you write an interceptor **once**. It automatically intercepts every HTTP request right before it leaves the browser and goes to your ASP.NET backend.
+
+---
+
+## What does it do in a JWT Auth Flow?
+
+In a typical Angular application using JWT, the interceptor handles two massive responsibilities: **Attaching the Token** and **Handling Token Expiration (401/403 Errors).**
+
+### 1. Automatically Injecting the JWT (Outgoing)
+
+When you log in, you probably save your JWT token in `localStorage`, `sessionStorage`, or an Auth State. The interceptor grabs that token and clones the outgoing request to add the `Authorization` header.
+
+Here is a simplified look at what an Angular Interceptor looks like in code:
+
+```typescript
+import { Injectable } from '@angular/core';
+import { HttpInterceptor, HttpRequest, HttpHandler, HttpEvent } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+@Injectable()
+export class AuthInterceptor implements HttpInterceptor {
+  intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
+    // 1. Get the token from storage
+    const token = localStorage.getItem('jwt_token');
+
+    // 2. If token exists, clone the request and add the Bearer header
+    if (token) {
+      const cloned = req.clone({
+        headers: req.headers.set('Authorization', `Bearer ${token}`)
+      });
+      return next.handle(cloned); // Pass the modified request forward
+    }
+
+    // 3. If no token, just pass the original request through (e.g., login request)
+    return next.handle(req);
+  }
+}
+
+```
+
+### 2. Handling Global API Errors (Incoming)
+
+What happens if the user's JWT expires while they are staring at the page, and they try to click a button? Your ASP.NET backend middleware is going to throw a `401 Unauthorized` response.
+
+Instead of writing error-handling code in every single Angular component, the Interceptor can **catch** that `401` globally, automatically redirect the user back to the login page, or attempt to call your backend's Refresh Token endpoint to get a new JWT seamlessly.
+
+---
+
+## AuthGuard vs. HttpInterceptor: The Ultimate Comparison
+
+To keep them straight in your head, look at how they split up the work:
+
+| Feature | AuthGuard (The Router Guard) | HttpInterceptor (The Network Guard) |
+| --- | --- | --- |
+| **Where it operates** | Angular Router / UI Navigation | Angular `HttpClient` / Network Layer |
+| **Primary Trigger** | Triggered when the user tries to click a link or switch pages/components. | Triggered when your code makes an API call (`GET`, `POST`, etc.) to the backend. |
+| **Core Question** | *"Is this user allowed to view this screen?"* | *"Does this network request have the right credentials?"* |
+| **Typical Action** | Checks if a token exists; redirects to `/login` if not. | Clones the request, attaches `Bearer <token>`, and handles `401/403` errors from the server. |
+
+### How they work together in a real user flow:
+
+1. The user clicks on the `/dashboard` route.
+2. **AuthGuard** kicks in, checks that the user is logged in, and says, *"Yep, you can view this page."*
+3. The Dashboard component loads and immediately calls `this.http.get('/api/machine-list')` to fetch data from your ASP.NET backend.
+4. **HttpInterceptor** pauses that request, grabs the JWT from storage, sticks it into the header, and fires it off to your API.
+
+They work as a tag-team to make sure your front-end UI stays protected and your back-end API requests stay authenticated!
