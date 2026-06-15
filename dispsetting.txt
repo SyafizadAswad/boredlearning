@@ -1,0 +1,472 @@
+To connect your ASP.NET backend preference with your Angular frontend table, you need to bridge the gap between the stored API data and the UI rendering logic.
+
+Here is a complete, step-by-step guide to achieving this using standard **Angular** (with modern signals/observables) and **Angular Material** (the most common table library for Angular, though the concept applies to any table).
+
+---
+
+## 1. The Strategy
+
+Instead of hardcoding your table headers in the HTML, you will:
+
+1. Define a master list of all possible columns.
+2. Fetch the user's preferred column keys from the ASP.NET API.
+3. Dynamically filter the master list to only show the columns the user wants to see.
+
+---
+
+## 2. Step-by-Step Implementation
+
+### Step A: Fetch the settings via an Angular Service
+
+First, create a service to call your ASP.NET Core API. Let's assume your API returns an array of strings representing the visible column keys (e.g., `['id', 'name', 'email']`).
+
+```typescript
+import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class UserPreferenceService {
+  private http = inject(HttpClient);
+  private apiUrl = 'https://localhost:7001/api/user/preferences'; // Your ASP.NET endpoint
+
+  getVisibleColumns(): Observable<string[]> {
+    return this.http.get<string[]>(this.apiUrl);
+  }
+}
+
+```
+
+### Step B: Handle the Logic in the Component
+
+In your component, you'll hold a master list of all columns and a dynamic list of *displayed* columns that updates once the API returns the data.
+
+```typescript
+import { Component, OnInit, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { MatTableModule } from '@angular/material/table';
+import { UserPreferenceService } from './user-preference.service';
+
+interface UserData {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+}
+
+@Component({
+  selector: 'app-user-table',
+  standalone: true,
+  imports: [CommonModule, MatTableModule],
+  templateUrl: './user-table.component.html'
+})
+export class UserTableComponent implements OnInit {
+  private preferenceService = inject(UserPreferenceService);
+
+  // 1. Define all possible data
+  dataSource: UserData[] = [
+    { id: 1, name: 'Alice', email: 'alice@example.com', role: 'Admin' },
+    { id: 2, name: 'Bob', email: 'bob@example.com', role: 'User' }
+  ];
+
+  // 2. This array controls what Angular actually renders
+  displayedColumns: string[] = []; 
+
+  ngOnInit(): void {
+    this.preferenceService.getVisibleColumns().subscribe({
+      next: (userPreferredColumns) => {
+        // Fallback to all columns if the user has no saved preferences yet
+        this.displayedColumns = userPreferredColumns.length > 0 
+          ? userPreferredColumns 
+          : ['id', 'name', 'email', 'role'];
+      },
+      error: (err) => {
+        console.error('Failed to load column preferences', err);
+        // Fallback on error so the UI doesn't break
+        this.displayedColumns = ['id', 'name', 'email', 'role'];
+      }
+    });
+  }
+}
+
+```
+
+### Step C: The Dynamic HTML Template
+
+If you are using Angular Material's `mat-table`, it relies entirely on the `displayedColumns` array. If a column's `matColumnDef` string isn't in that array, Angular safely ignores it and hides it from the DOM.
+
+```html
+<table mat-table [dataSource]="dataSource" class="mat-elevation-z8">
+
+  <ng-container matColumnDef="id">
+    <th mat-header-cell *matHeaderCellDef> ID </th>
+    <td mat-cell *matCellDef="let element"> {{element.id}} </td>
+  </ng-container>
+
+  <ng-container matColumnDef="name">
+    <th mat-header-cell *matHeaderCellDef> Name </th>
+    <td mat-cell *matCellDef="let element"> {{element.name}} </td>
+  </ng-container>
+
+  <ng-container matColumnDef="email">
+    <th mat-header-cell *matHeaderCellDef> Email </th>
+    <td mat-cell *matCellDef="let element"> {{element.email}} </td>
+  </ng-container>
+
+  <ng-container matColumnDef="role">
+    <th mat-header-cell *matHeaderCellDef> Role </th>
+    <td mat-cell *matCellDef="let element"> {{element.role}} </td>
+  </ng-container>
+
+  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+</table>
+
+```
+
+> **Note:** If you are using a standard HTML table `<table>` without Angular Material, you would achieve this by using `*ngIf` on your `<th>` and `<td>` tags, checking if the column name exists in your array:
+> `*ngIf="displayedColumns.includes('email')"`
+
+---
+
+## 3. Taking it a Step Further: Saving Changes
+
+If you have a checklist UI where users can toggle columns on/off in real-time, you can update the backend on the fly:
+
+```typescript
+toggleColumn(columnName: string) {
+  const index = this.displayedColumns.indexOf(columnName);
+  
+  if (index > -1) {
+    this.displayedColumns.splice(index, 1); // Hide it
+  } else {
+    this.displayedColumns.push(columnName); // Show it
+  }
+
+  // Optional: Send the updated array back to your ASP.NET backend
+  this.preferenceService.saveVisibleColumns(this.displayedColumns).subscribe();
+}
+
+```
+-modal using MatDialog
+
+To open your column selection/display page as a modal (dialog) instead of navigating away, the most seamless way in Angular is to use **Angular Material Dialog** (`MatDialog`).
+
+This keeps the user on the current page, lets them toggle columns in the modal, and sends the updated preferences back to the parent table component when closed.
+
+Here is how you can set this up.
+
+---
+
+## Step 1: Create the Modal Component
+
+This will be the content inside your popup window. It will receive the current visibility settings, let the user check/uncheck columns, and return the new settings when closed.
+
+```typescript
+import { Component, Inject, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatButtonModule } from '@angular/material/button';
+
+@Component({
+  selector: 'app-column-settings-modal',
+  standalone: true,
+  imports: [CommonModule, FormsModule, MatDialogModule, MatCheckboxModule, MatButtonModule],
+  template: `
+    <h2 mat-dialog-title>Configure Columns</h2>
+    <mat-dialog-content>
+      <p>Select the columns you want to display:</p>
+      <div *ngFor="let col of allColumns" style="margin-bottom: 8px;">
+        <mat-checkbox 
+          [(ngModel)]="col.visible">
+          {{ col.label }}
+        </mat-checkbox>
+      </div>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button (click)="onCancel()">Cancel</button>
+      <button mat-raised-button color="primary" (click)="onSave()">Save Preferences</button>
+    </mat-dialog-actions>
+  `
+})
+export class ColumnSettingsModalComponent {
+  private dialogRef = inject(MatDialogRef<ColumnSettingsModalComponent>);
+  private data = inject(MAT_DIALOG_DATA);
+
+  // Master list mapping internal keys to friendly labels
+  allColumns = [
+    { key: 'id', label: 'ID', visible: false },
+    { key: 'name', label: 'Name', visible: false },
+    { key: 'email', label: 'Email', visible: false },
+    { key: 'role', label: 'Role', visible: false }
+  ];
+
+  constructor() {
+    // Check the checkboxes for columns that are currently active
+    const activeColumns: string[] = this.data.displayedColumns;
+    this.allColumns.forEach(col => {
+      col.visible = activeColumns.includes(col.key);
+    });
+  }
+
+  onCancel(): void {
+    this.dialogRef.close(); // Close without changes
+  }
+
+  onSave(): void {
+    // Filter out only the keys that the user left checked
+    const selectedColumns = this.allColumns
+      .filter(col => col.visible)
+      .map(col => col.key);
+      
+    this.dialogRef.close(selectedColumns); // Pass data back to parent
+  }
+}
+
+```
+
+---
+
+## Step 2: Open the Modal from your Table Component
+
+Now, update your main table component to include a button that triggers the `MatDialog`. When the modal closes, it will pass the fresh array of columns back, which you can save to your ASP.NET backend.
+
+```typescript
+import { Component, OnInit, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { MatTableModule } from '@angular/material/table';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { UserPreferenceService } from './user-preference.service';
+import { ColumnSettingsModalComponent } from './column-settings-modal.component';
+
+@Component({
+  selector: 'app-user-table',
+  standalone: true,
+  imports: [CommonModule, MatTableModule, MatButtonModule, MatDialogModule],
+  templateUrl: './user-table.component.html'
+})
+export class UserTableComponent implements OnInit {
+  private preferenceService = inject(UserPreferenceService);
+  private dialog = inject(MatDialog); // Inject MatDialog service
+
+  dataSource = [
+    { id: 1, name: 'Alice', email: 'alice@example.com', role: 'Admin' },
+    { id: 2, name: 'Bob', email: 'bob@example.com', role: 'User' }
+  ];
+  
+  displayedColumns: string[] = [];
+
+  ngOnInit(): void {
+    this.preferenceService.getVisibleColumns().subscribe(cols => {
+      this.displayedColumns = cols.length > 0 ? cols : ['id', 'name', 'email', 'role'];
+    });
+  }
+
+  // This function triggers when the user clicks the settings button
+  openColumnSettings(): void {
+    const dialogRef = this.dialog.open(ColumnSettingsModalComponent, {
+      width: '300px',
+      data: { displayedColumns: [...this.displayedColumns] } // Send current setup to modal
+    });
+
+    dialogRef.afterClosed().subscribe((result: string[] | undefined) => {
+      // If result is undefined, user clicked cancel or clicked outside the backdrop
+      if (result) {
+        this.displayedColumns = result; // Instantly updates UI table visibility
+        
+        // Push changes to ASP.NET Core DB
+        this.preferenceService.saveVisibleColumns(result).subscribe({
+          next: () => console.log('Preferences updated in database successfully'),
+          error: (err) => console.error('Failed to save to database', err)
+        });
+      }
+    });
+  }
+}
+
+```
+
+---
+
+## Step 3: Add the Button to your HTML
+
+Simply place a settings button anywhere above your table inside your main HTML template:
+
+```html
+<div style="margin-bottom: 12px; display: flex; justify-content: flex-end;">
+  <button mat-raised-button (click)="openColumnSettings()">
+    ⚙️ Column Settings
+  </button>
+</div>
+
+<table mat-table [dataSource]="dataSource" class="mat-elevation-z8">
+  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+</table>
+
+```
+without matdialog
+
+To open your column selection/display page as a modal (dialog) instead of navigating away, the most seamless way in Angular is to use **Angular Material Dialog** (`MatDialog`).
+
+This keeps the user on the current page, lets them toggle columns in the modal, and sends the updated preferences back to the parent table component when closed.
+
+Here is how you can set this up.
+
+---
+
+## Step 1: Create the Modal Component
+
+This will be the content inside your popup window. It will receive the current visibility settings, let the user check/uncheck columns, and return the new settings when closed.
+
+```typescript
+import { Component, Inject, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatButtonModule } from '@angular/material/button';
+
+@Component({
+  selector: 'app-column-settings-modal',
+  standalone: true,
+  imports: [CommonModule, FormsModule, MatDialogModule, MatCheckboxModule, MatButtonModule],
+  template: `
+    <h2 mat-dialog-title>Configure Columns</h2>
+    <mat-dialog-content>
+      <p>Select the columns you want to display:</p>
+      <div *ngFor="let col of allColumns" style="margin-bottom: 8px;">
+        <mat-checkbox 
+          [(ngModel)]="col.visible">
+          {{ col.label }}
+        </mat-checkbox>
+      </div>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button (click)="onCancel()">Cancel</button>
+      <button mat-raised-button color="primary" (click)="onSave()">Save Preferences</button>
+    </mat-dialog-actions>
+  `
+})
+export class ColumnSettingsModalComponent {
+  private dialogRef = inject(MatDialogRef<ColumnSettingsModalComponent>);
+  private data = inject(MAT_DIALOG_DATA);
+
+  // Master list mapping internal keys to friendly labels
+  allColumns = [
+    { key: 'id', label: 'ID', visible: false },
+    { key: 'name', label: 'Name', visible: false },
+    { key: 'email', label: 'Email', visible: false },
+    { key: 'role', label: 'Role', visible: false }
+  ];
+
+  constructor() {
+    // Check the checkboxes for columns that are currently active
+    const activeColumns: string[] = this.data.displayedColumns;
+    this.allColumns.forEach(col => {
+      col.visible = activeColumns.includes(col.key);
+    });
+  }
+
+  onCancel(): void {
+    this.dialogRef.close(); // Close without changes
+  }
+
+  onSave(): void {
+    // Filter out only the keys that the user left checked
+    const selectedColumns = this.allColumns
+      .filter(col => col.visible)
+      .map(col => col.key);
+      
+    this.dialogRef.close(selectedColumns); // Pass data back to parent
+  }
+}
+
+```
+
+---
+
+## Step 2: Open the Modal from your Table Component
+
+Now, update your main table component to include a button that triggers the `MatDialog`. When the modal closes, it will pass the fresh array of columns back, which you can save to your ASP.NET backend.
+
+```typescript
+import { Component, OnInit, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { MatTableModule } from '@angular/material/table';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { UserPreferenceService } from './user-preference.service';
+import { ColumnSettingsModalComponent } from './column-settings-modal.component';
+
+@Component({
+  selector: 'app-user-table',
+  standalone: true,
+  imports: [CommonModule, MatTableModule, MatButtonModule, MatDialogModule],
+  templateUrl: './user-table.component.html'
+})
+export class UserTableComponent implements OnInit {
+  private preferenceService = inject(UserPreferenceService);
+  private dialog = inject(MatDialog); // Inject MatDialog service
+
+  dataSource = [
+    { id: 1, name: 'Alice', email: 'alice@example.com', role: 'Admin' },
+    { id: 2, name: 'Bob', email: 'bob@example.com', role: 'User' }
+  ];
+  
+  displayedColumns: string[] = [];
+
+  ngOnInit(): void {
+    this.preferenceService.getVisibleColumns().subscribe(cols => {
+      this.displayedColumns = cols.length > 0 ? cols : ['id', 'name', 'email', 'role'];
+    });
+  }
+
+  // This function triggers when the user clicks the settings button
+  openColumnSettings(): void {
+    const dialogRef = this.dialog.open(ColumnSettingsModalComponent, {
+      width: '300px',
+      data: { displayedColumns: [...this.displayedColumns] } // Send current setup to modal
+    });
+
+    dialogRef.afterClosed().subscribe((result: string[] | undefined) => {
+      // If result is undefined, user clicked cancel or clicked outside the backdrop
+      if (result) {
+        this.displayedColumns = result; // Instantly updates UI table visibility
+        
+        // Push changes to ASP.NET Core DB
+        this.preferenceService.saveVisibleColumns(result).subscribe({
+          next: () => console.log('Preferences updated in database successfully'),
+          error: (err) => console.error('Failed to save to database', err)
+        });
+      }
+    });
+  }
+}
+
+```
+
+---
+
+## Step 3: Add the Button to your HTML
+
+Simply place a settings button anywhere above your table inside your main HTML template:
+
+```html
+<div style="margin-bottom: 12px; display: flex; justify-content: flex-end;">
+  <button mat-raised-button (click)="openColumnSettings()">
+    ⚙️ Column Settings
+  </button>
+</div>
+
+<table mat-table [dataSource]="dataSource" class="mat-elevation-z8">
+  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+</table>
+
+```
