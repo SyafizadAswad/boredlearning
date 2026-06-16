@@ -470,3 +470,128 @@ Simply place a settings button anywhere above your table inside your main HTML t
 </table>
 
 ```
+To bind a dynamic list of checkboxes in Angular 20 and map both their **names** and **boolean values (true/false)** into a clean request body for your backend, the cleanest approach is to use FormArray.
+
+Since FormArray natively track values by index, we will construct the form structure and then map the data on submission to match exactly what your backend needs.
+
+Here is a complete, step-by-step implementation.
+
+---
+
+## 1. The Component (TypeScript)
+
+We will initialize the form using `FormBuilder` and create a `FormArray` where each checkbox gets its own `FormControl`. When submitting, we will map over our original list to pair the names with the checkbox values.
+
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { ReactiveFormsModule, FormBuilder, FormGroup, FormArray } from '@angular/forms';
+import { CommonModule } from '@angular/common';
+import { HttpClientModule, HttpClient } from '@angular/common/http';
+
+interface CheckboxItem {
+  id: number;
+  name: string;
+  selected: boolean;
+}
+
+@Component({
+  selector: 'app-checkbox-form',
+  standalone: true,
+  imports: [ReactiveFormsModule, CommonModule, HttpClientModule],
+  templateUrl: './checkbox-form.component.html'
+})
+export class CheckboxFormComponent implements OnInit {
+  form!: FormGroup;
+  
+  // Your data source (could also come from an API)
+  checkboxData: CheckboxItem[] = [
+    { id: 1, name: 'Receive Newsletter', selected: false },
+    { id: 2, name: 'Accept Terms of Service', selected: true },
+    { id: 3, name: 'Enable Two-Factor Auth', selected: false }
+  ];
+
+  constructor(private fb: FormBuilder, private http: HttpClient) {}
+
+  ngOnInit() {
+    this.initForm();
+  }
+
+  initForm() {
+    // Create an array of FormControls based on the initial 'selected' boolean values
+    const formControls = this.checkboxData.map(item => this.fb.control(item.selected));
+
+    this.form = this.fb.group({
+      items: this.fb.array(formControls)
+    });
+  }
+
+  // Getter for easy template access
+  get itemsFormArray() {
+    return this.form.get('items') as FormArray;
+  }
+
+  onSubmit() {
+    // 1. Get the raw boolean array from the form: e.g., [false, true, false]
+    const formValues: boolean[] = this.form.value.items;
+
+    // 2. Map it back to include the names
+    const requestBody = this.checkboxData.map((item, index) => ({
+      name: item.name,
+      isSelected: formValues[index]
+    }));
+
+    console.log('Payload sending to backend:', requestBody);
+
+    // 3. Send to backend
+    this.http.post('https://api.yourdomain.com/settings', requestBody)
+      .subscribe({
+        next: (res) => console.log('Success!', res),
+        error: (err) => console.error('Error!', err)
+      });
+  }
+}
+
+```
+
+---
+
+## 2. The Template (HTML)
+
+In the HTML, we loop through the `FormArray` controls. We use the loop `index` to hook up the `formControlName` and to grab the respective display name from our `checkboxData` array.
+
+```html
+<form [formGroup]="form" (ngSubmit)="onSubmit()">
+  <div formArrayName="items">
+    
+    @for (control of itemsFormArray.controls; track $index) {
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" [formControlName]="$index" />
+          {{ checkboxData[$index].name }}
+        </label>
+      </div>
+    }
+
+  </div>
+
+  <button type="submit" [disabled]="form.invalid">Submit to Backend</button>
+</form>
+
+```
+
+---
+
+## 3. What the Backend Receives
+
+When the user clicks submit, the payload constructed in the `onSubmit()` method will transform the flat UI state into a structured object array that looks like this:
+
+```json
+[
+  { "name": "Receive Newsletter", "isSelected": false },
+  { "name": "Accept Terms of Service", "isSelected": true },
+  { "name": "Enable Two-Factor Auth", "isSelected": false }
+]
+
+```
+
+> **Note:** If your backend prefers an object key-value pair instead (e.g., `{"Receive Newsletter": false, "Accept Terms of Service": true}`), you can easily modify the mapping step inside `onSubmit()` using `.reduce()` instead of `.map()`.
