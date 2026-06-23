@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Responsive Card Table</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Project</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th>Amount</th>
+                <th></th> </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td data-label="Project">Alpha Redesign</td>
+                <td data-label="Due Date">07/12/2026</td>
+                <td data-label="Status"><span class="badge active">Active</span></td>
+                <td data-label="Amount">$4,500</td>
+                <td class="table-action">
+                    <button class="btn-action">View</button>
+                </td>
+            </tr>
+            <tr>
+                <td data-label="Project">Beta App Testing</td>
+                <td data-label="Due Date">07/18/2026</td>
+                <td data-label="Status"><span class="badge pending">Pending</span></td>
+                <td data-label="Amount">$1,200</td>
+                <td class="table-action">
+                    <button class="btn-action">View</button>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+</body>
+</html>

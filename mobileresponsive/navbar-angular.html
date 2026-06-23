@@ -1,0 +1,26 @@
+<nav class="navbar">
+    <div class="nav-container">
+        <a href="#" class="nav-logo">BrandName</a>
+
+        <button class="menu-toggle" (click)="toggleMainMenu($event)" aria-label="Toggle navigation">
+            Options <span class="arrow">▼</span>
+        </button>
+
+        <ul class="nav-menu" [class.is-active]="isMainMenuOpen">
+            <li><a href="#" class="nav-link">Dashboard</a></li>
+            
+            <li class="has-dropdown" [class.is-open]="isNestedMenuOpen">
+                <button class="dropdown-trigger" (click)="toggleNestedMenu($event)">
+                    Resources <span class="arrow">▼</span>
+                </button>
+                <ul class="nested-dropdown">
+                    <li><a href="#">Tutorials</a></li>
+                    <li><a href="#">Documentation</a></li>
+                    <li><a href="#">API Reference</a></li>
+                </ul>
+            </li>
+
+            <li><a href="#" class="nav-link">Settings</a></li>
+        </ul>
+    </div>
+</nav>
