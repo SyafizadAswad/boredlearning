@@ -1,33 +1,16 @@
-<meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Responsive Card Table</title>
-    <link rel="stylesheet" href="stylenav.css">
 <nav class="navbar">
-    <div class="nav-container">
-        <a href="#" class="nav-logo">BrandName</a>
-
-        <input type="checkbox" id="main-menu-toggle" class="menu-checkbox">
-        <label for="main-menu-toggle" class="menu-toggle">
-            Options <span class="arrow">▼</span>
-        </label>
-
-        <ul class="nav-menu">
-            <li><a href="#" class="nav-link">Dashboard</a></li>
-            
-            <li class="has-dropdown">
-                <input type="checkbox" id="nested-menu-toggle" class="nested-checkbox">
-                <label for="nested-menu-toggle" class="dropdown-trigger">
-                    Resources <span class="arrow">▼</span>
-                </label>
-                
-                <ul class="nested-dropdown">
-                    <li><a href="#">Tutorials</a></li>
-                    <li><a href="#">Documentation</a></li>
-                    <li><a href="#">API Reference</a></li>
-                </ul>
-            </li>
-
-            <li><a href="#" class="nav-link">Settings</a></li>
-        </ul>
-    </div>
+  <div class="logo">MySite</div>
+  
+  <input type="checkbox" id="menu-toggle">
+  <label for="menu-toggle" class="burger">&#9776;</label>
+  
+  <div class="menu">
+    <a href="#">Home</a>
+    <a href="#">About</a>
+    <select onchange="location = this.value;">
+      <option value="" disabled selected>Services</option>
+      <option value="#web">Web Design</option>
+      <option value="#seo">SEO</option>
+    </select>
+  </div>
 </nav>
